@@ -20,6 +20,7 @@
     <input id="set-name-input" placeholder="Font name, Enter" hidden>
   </span>
   <button id="tab-label" class="tab on">Label</button>
+  <button id="tab-images" class="tab" title="Clean pictures of characters - cleaned up or drawn, by hand or with an AI image tool - used instead of the scans">Glyph images</button>
   <button id="tab-result" class="tab">Results</button>
   <button id="regen" class="primary">Regenerate</button>
 </header>
@@ -64,6 +65,22 @@
     <div class="hint" id="hint">Drag a box around a glyph and type it. Type a whole run of characters to split a line
       into fixed-pitch cells. Wheel = zoom · right-drag or Space+drag = pan · click a box to select ·
       double-click (or Enter) edits its text · Delete removes · drag a selected box's handles to resize it · Shift+drag moves a box or its red baseline · arrows nudge (Shift ×10).</div>
+  </section>
+
+  <section id="view-images" class="center result" hidden>
+    <div class="img-head">
+      <button id="img-add" class="primary" title="PNG, JPG, BMP, TIFF or WebP - one character per picture, dark on light (or on a transparent background)">Add glyph images…</button>
+      <input id="img-input" type="file" multiple accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,.gif,image/*" hidden>
+      <label class="inline" title="A character from this font drawn faintly behind each picture, for size and weight">Compare with <input id="img-ref" maxlength="1" spellcheck="false" autocomplete="off"></label>
+      <span id="img-status" class="muted small"></span>
+    </div>
+    <p class="muted small img-help">A glyph image is a clean picture of one character - a sample cleaned up, or a missing character drawn,
+      by hand or with an AI image tool - used in place of the scans when you Regenerate (both fonts; the scans of that character are kept, just not used).
+      Type which character each one is. It's placed for you: onto the character's own average when it has samples, otherwise where a
+      standard font puts it, scaled to this face's capitals. <b>Drag</b> to move it, <b>wheel</b> to scale (Shift = fine), arrows nudge.
+      Name a file after its character (<code>&amp;.png</code>, <code>uni0026.png</code>) and it's filled in. To clean up a glyph you already have,
+      open it in Results and save its picture.</p>
+    <div id="img-grid"></div>
   </section>
 
   <section id="view-result" class="center result" hidden>

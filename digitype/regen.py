@@ -31,7 +31,7 @@ from skimage import filters, measure, morphology
 from skimage.registration import phase_cross_correlation
 
 from . import grow as G
-from . import island
+from . import images, island
 from .raster import Grid, clean
 from .seed import from_island
 
@@ -764,23 +764,38 @@ def regenerate(project, chars=None, log=print, sid=None):
     os.makedirs(os.path.join(out_dir, "seeds"), exist_ok=True)
     results, seed_glyphs, avg_glyphs = {}, {}, {}
     adv, upem = st["advance"], st["upem"]
-    todo = sorted(by_char) if not chars else [c for c in chars if c in by_char]
+    # glyph images (cleaned-up or drawn pictures) stand in for the scans
+    pics = {g["char"]: g for g in project.image_list(sid) if g.get("enabled", True) and g.get("char") and g.get("place")}
+    known = set(by_char) | set(pics)
+    todo = sorted(known) if not chars else [c for c in chars if c in known]
     for n_done, ch in enumerate(todo, 1):
-        items = by_char[ch]
-        page0 = items[0][1]
-        p = pitch_px(project, page0, st)
-        samples = [s for s in (_sample(project, c, pg, st) for c, pg in items) if s is not None]
-        skipped = len(items) - len(samples)
-        log(f"[{n_done}/{len(todo)}] {ch!r}: {len(samples)} samples" + (f" ({skipped} without ink or baseline)" if skipped else ""))
-        if not samples:
-            results[ch] = {"n": 0, "error": "no usable samples"}
-            continue
-        try:
-            res = _one_glyph(ch, samples, p, page0, st, out_dir, skipped, log)
-        except Exception as e:                 # one bad glyph shouldn't stop the font
-            import traceback
-            log(f"    {ch!r} failed: {e}\n" + traceback.format_exc(limit=3))
-            results[ch] = {"n": len(samples), "error": f"failed: {e}"}
+        res = None
+        items = by_char.get(ch, [])
+        if items:
+            page0 = items[0][1]
+            p = pitch_px(project, page0, st)
+            samples = [s for s in (_sample(project, c, pg, st) for c, pg in items) if s is not None]
+            skipped = len(items) - len(samples)
+            log(f"[{n_done}/{len(todo)}] {ch!r}: {len(samples)} samples" + (f" ({skipped} without ink or baseline)" if skipped else ""))
+            if not samples:
+                results[ch] = {"n": 0, "error": "no usable samples"}
+            else:
+                try:
+                    res = _one_glyph(ch, samples, p, page0, st, out_dir, skipped, log)
+                except Exception as e:                 # one bad glyph shouldn't stop the font
+                    import traceback
+                    log(f"    {ch!r} failed: {e}\n" + traceback.format_exc(limit=3))
+                    results[ch] = {"n": len(samples), "error": f"failed: {e}"}
+        if ch in pics:
+            if not items:
+                log(f"[{n_done}/{len(todo)}] {ch!r}: glyph image")
+            try:
+                res = _image_glyph(project, ch, pics[ch], res, st, out_dir, log)
+            except Exception as e:
+                import traceback
+                log(f"    {ch!r} glyph image failed: {e} - " + ("the scans' average is used" if res else "left out")
+                    + "\n" + traceback.format_exc(limit=3))
+        if res is None:
             continue
         results[ch], grown_u, avg_u = res
         if grown_u is not None:
@@ -794,15 +809,39 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     """Average one character's samples, trace it, seed it, grow it back.
     -> (result for the page, regrown shape, traced shape), font units. If
     only the seed step fails, the traced average still goes in the font."""
-    adv, upem, up = st["advance"], st["upem"], int(st["upsample"])
     prob, base, cx, n, odd, p = average(samples, p)      # p: the common px per cell
     if odd:
         log(f"    {len(odd)} sample{'s' if len(odd) > 1 else ''} of {ch!r} left out - unlike the others "
             f"(box {', '.join(str(o['box']) for o in odd)}): check the label")
+    return _from_prob(ch, prob, base, cx, n, odd, p, page0.get("dpi"), st, out_dir, skipped, log)
+
+
+def _image_glyph(project, ch, pic, from_scans, st, out_dir, log=print):
+    """A glyph image in place of the scans' average, where it was placed.
+    The scans' own result (if any) rides along for the page to compare."""
+    ink = images.load_ink(project.image_path(pic))
+    prob, base, cx, p = images.working_prob(ink, pic["place"], st["advance"])
+    res, grown_u, avg_u = _from_prob(ch, prob, base, cx, 0, [], p, None, st, out_dir, 0, log, picture=True)
+    res["image"] = {"id": pic["id"], "file": pic["file"], "name": pic.get("name")}
+    if from_scans is not None:
+        r0 = from_scans[0]
+        res["n"], res["skipped"] = r0["n"], r0.get("skipped", 0)
+        res["scans"] = {k: r0.get(k) for k in ("avg_png", "avg_img", "avg_svg", "avg_bounds", "n")}
+        res["avg_bounds"] = r0.get("avg_bounds")      # so a re-placed picture still lands on the scans
+    else:
+        res["avg_bounds"] = None
+    return res, grown_u, avg_u
+
+
+def _from_prob(ch, prob, base, cx, n, odd, p, dpi, st, out_dir, skipped=0, log=print, picture=False):
+    """A glyph's ink map (averaged scans, or a picture) -> traced outline,
+    seed and regrown outline. picture: a clean picture already placed by
+    hand - no extra smoothing, no re-centring."""
+    adv, upem, up = st["advance"], st["upem"], int(st["upsample"])
     # smoothing that fades as samples are added: averaging n samples
     # smooths an edge on its own, so few samples get a little more blur -
     # 'smooth' scales it (0 = off); measured in px at the common scale
-    sm = float(st.get("smooth", 1.0))
+    sm = 0.0 if picture else float(st.get("smooth", 1.0))
     if sm > 0:
         sigma = sm * 0.012 * p / np.sqrt(max(1, n))
         if sigma > 0.2:
@@ -819,7 +858,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
             island.prune(isl)
             grid = Grid(adv / 2 - cx * up * k, base * up * k, 1.0 / k, ink.shape)
             seed = from_island(isl, grid, ch, adv, upem)
-            seed.meta = {"samples": n, "pitch_mm": st["pitch_mm"], "dpi": page0.get("dpi")}
+            seed.meta = {"samples": n, "pitch_mm": st["pitch_mm"], "dpi": dpi, **({"source": "image"} if picture else {})}
             grown = G.grow(seed, weight=st["weight"], add=st["add"])
             grown_u = grown.simplify(1.5) if grown is not None else None
             with open(os.path.join(out_dir, "seeds", f"seed_{ord(ch):04x}.json"), "w", encoding="utf-8") as f:
@@ -840,7 +879,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     # centred - the ink's middle (traced outline) on the middle of the cell
     dx = 0.0
     ref = avg_u if avg_u is not None and not avg_u.is_empty else grown_u
-    if st.get("placement") == "center" and ref is not None and not ref.is_empty:
+    if st.get("placement") == "center" and not picture and ref is not None and not ref.is_empty:
         # centre on the letter's own ink: pieces under 3% of it (a speck, a
         # stray dot) don't get a say
         parts = list(getattr(ref, "geoms", [ref]))
@@ -865,6 +904,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
         "seed_svg": _svg(grown_u), "avg_svg": _svg(avg_u),
         "strokes": [[(x + dx, y) for x, y in s_.points] for s_ in seed.strokes] if seed else [],
         "shift": round(dx, 1),
+        "avg_bounds": [round(v, 1) for v in avg_u.bounds] if avg_u is not None and not avg_u.is_empty and not picture else None,
         "iou": round(G.iou(grown_u, avg_u), 3) if grown_u is not None and avg_u is not None else None,
     }
     if seed_error:

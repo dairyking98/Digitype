@@ -15,11 +15,12 @@ const dpr = () => window.devicePixelRatio || 1;
 
 // ------------------------------------------------------------------ data
 function applyState(p) {
-  Object.assign(S, { pages: p.pages, settings: p.settings, sets: p.sets, activeSet: p.active_set });
+  Object.assign(S, { pages: p.pages, settings: p.settings, sets: p.sets, activeSet: p.active_set, images: p.images || [] });
   setBoxes(p.boxes);
   $("root").textContent = p.root;
   showSettings(p.estimated_pitch_mm);
   renderSets(); renderPages(); renderGlyphs(); draw();
+  if (!$("view-images").hidden) renderImages();
 }
 // S.boxes: the font set being labelled; S.allBoxes: every set's (others drawn dimmed)
 function setBoxes(all) {
@@ -646,13 +647,14 @@ $("add-btn").onclick = async () => {
 
 // ------------------------------------------------------------------ regenerate + results
 function tab(which) {
-  $("tab-label").classList.toggle("on", which === "label");
-  $("tab-result").classList.toggle("on", which === "result");
-  $("view-label").hidden = which !== "label";
-  $("view-result").hidden = which !== "result";
+  for (const k of ["label", "images", "result"]) {
+    $(`tab-${k}`).classList.toggle("on", which === k);
+    $(`view-${k}`).hidden = which !== k;
+  }
   if (which === "label") resize();
 }
 $("tab-label").onclick = () => tab("label");
+$("tab-images").onclick = () => showImages();
 $("tab-result").onclick = async () => {
   tab("result");
   const res = await api("/api/result");
@@ -764,11 +766,11 @@ function renderResult(r) {
     for (const [ch, g] of entries) {
       const card = document.createElement("div");
       card.className = "rcard";
-      const title = `<div class="t"><b></b><span class="muted">${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}</span></div>`;
-      if (!g.n || g.error && !g.avg_svg) { card.innerHTML = title; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
+      const title = `<div class="t"><b></b><span class="muted">${g.image ? "glyph image" + (g.n ? " · " : "") : ""}${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}${g.image ? " not used" : ""}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}</span></div>`;
+      if (!g.n && !g.image || g.error && !g.avg_svg) { card.innerHTML = title; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
       card.innerHTML = `${title}
         <div class="imgs"><div>${panel("avg", g, r)}</div><div>${panel("trace", g, r)}</div><div>${panel("seed", g, r, show ? g.strokes : null)}</div></div>
-        <div class="cap"><span>averaged</span><span>traced</span><span>seed, regrown</span></div>`;
+        <div class="cap"><span>${g.image ? "picture" : "averaged"}</span><span>traced</span><span>seed, regrown</span></div>`;
       card.querySelector("b").textContent = ch;
       card.title = "Click to enlarge";
       card.onclick = () => enlarge(ch, g, r);
@@ -785,12 +787,15 @@ function enlarge(ch, g, r) {
   ov.className = "overlay";
   const show = localStorage.getItem("ts.strokes") !== "0";
   ov.innerHTML = `<div class="ov-box" role="dialog" aria-label="Glyph ${ch}">
-    <div class="ov-head"><b class="ov-ch"></b><span class="muted">${g.n} sample${g.n === 1 ? "" : "s"}${g.skipped ? ` (${g.skipped} unusable)` : ""}${g.iou != null ? ` · seed vs trace match ${g.iou}` : ""}</span>
-      <span class="spacer"></span><button class="ov-visit">Visit its samples</button><button class="ov-close" title="Close (Esc)">✕</button></div>
+    <div class="ov-head"><b class="ov-ch"></b><span class="muted">${g.image ? "glyph image" + (g.n ? `, in place of ${g.n} sample${g.n === 1 ? "" : "s"}` : "") : `${g.n} sample${g.n === 1 ? "" : "s"}`}${g.skipped ? ` (${g.skipped} unusable)` : ""}${g.iou != null ? ` · seed vs trace match ${g.iou}` : ""}</span>
+      <span class="spacer"></span>
+      <button class="ov-save" title="Save the averaged scan as a big clean PNG, named after its character - clean it up (by hand or with an AI image tool) and add it back under Glyph images">Save picture for clean-up</button>
+      ${g.image ? '<button class="ov-img">Edit glyph image</button>' : ""}
+      ${g.n ? '<button class="ov-visit">Visit its samples</button>' : ""}<button class="ov-close" title="Close (Esc)">✕</button></div>
     ${g.odd && g.odd.length ? `<div class="ov-odd">Left out of the average - unlike the other samples (match ${g.odd.map((o) => o.match).join(", ")} vs a typical ${g.odd[0].typical}). Usually a label mistake (an ä labelled a, a letter one cell off):
       ${g.odd.map((o) => `<button class="small" data-box="${o.box}">Visit box ${o.box}</button>`).join(" ")}</div>` : ""}
     <div class="ov-imgs" style="--ar:${frameOf(r).w} / ${frameOf(r).h}">
-      <figure><div>${panel("avg", g, r)}</div><figcaption>averaged (${g.n} impression${g.n === 1 ? "" : "s"})</figcaption></figure>
+      <figure><div>${panel("avg", g, r)}</div><figcaption>${g.image ? "glyph image" : `averaged (${g.n} impression${g.n === 1 ? "" : "s"})`}</figcaption></figure>
       <figure><div>${panel("trace", g, r)}</div><figcaption>traced - the Average font</figcaption></figure>
       <figure><div>${panel("seed", g, r, show ? g.strokes : null)}</div><figcaption>seed, regrown - the Seed font</figcaption></figure>
     </div></div>`;
@@ -799,11 +804,190 @@ function enlarge(ch, g, r) {
   const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
   ov.onclick = (e) => { if (e.target === ov) close(); };
   ov.querySelector(".ov-close").onclick = close;
-  ov.querySelector(".ov-visit").onclick = () => { close(); tab("label"); jumpTo(ch); };
+  if (ov.querySelector(".ov-visit")) ov.querySelector(".ov-visit").onclick = () => { close(); tab("label"); jumpTo(ch); };
+  if (ov.querySelector(".ov-img")) ov.querySelector(".ov-img").onclick = () => { close(); showImages(g.image.id); };
+  ov.querySelector(".ov-save").onclick = () => saveForCleanup(ch, g.scans || g);
   ov.querySelectorAll("[data-box]").forEach((b) => { b.onclick = () => { close(); tab("label"); jumpToBox(Number(b.dataset.box)); }; });
   window.addEventListener("keydown", esc, true);
   document.body.appendChild(ov);
 }
+
+// ------------------------------------------------------------------ glyph images
+// A clean picture of a character, placed in the font: picture pixel
+// (col, row) -> font units X = x + col*s, Y = y - row*s (y up, baseline 0).
+// Drawn here in the same frame as Results (SVG, y down), so a picture
+// lines up with the glyphs around it.
+const uniName = (ch) => `uni${[...ch].map((c) => c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")).join("")}`;
+
+// the averaged scan of a glyph, enlarged, as a white-backed PNG to clean up
+function saveForCleanup(ch, g) {
+  if (!g.avg_png) return;
+  const im = new Image();
+  im.onload = () => {
+    const k = Math.max(1, Math.round(1600 / Math.max(im.width, im.height)));
+    const c = document.createElement("canvas");
+    c.width = im.width * k; c.height = im.height * k;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+    x.drawImage(im, 0, 0, c.width, c.height);
+    const a = document.createElement("a");
+    a.href = c.toDataURL("image/png");
+    a.download = `${uniName(ch)}.png`;
+    a.click();
+  };
+  im.src = g.avg_png;
+}
+
+let imgResult = null;
+async function showImages(focus) {
+  tab("images");
+  try { imgResult = await api("/api/result"); } catch { imgResult = null; }
+  S.images = await api("/api/images");
+  renderImages(focus);
+}
+// cap and x-height of this face (from the last Regenerate) for guide lines
+function faceGuides(r) {
+  const tops = (cs) => {
+    const v = [...cs].map((c) => r?.chars?.[c]?.avg_bounds?.[3] ?? (r?.chars?.[c]?.image ? null : r?.chars?.[c]?.bounds?.[3])).filter((v) => v != null).sort((a, b) => a - b);
+    return v.length ? v[v.length >> 1] : null;
+  };
+  return { cap: tops("HEFIKLMNTZ"), x: tops("xzvwnmru") };
+}
+function imageFrame(r) {
+  const upem = r?.upem || 1000, adv = r?.advance || S.settings.advance || 600;
+  const e = r?.extent || [0, -0.3 * upem, adv, 0.85 * upem];
+  const x0 = Math.min(e[0], -0.15 * adv), x1 = Math.max(e[2], 1.15 * adv);
+  const y0 = Math.min(e[1], -0.3 * upem), y1 = Math.max(e[3], 0.85 * upem);
+  const pad = 0.04 * (y1 - y0);
+  return { x: x0 - pad, y: -(y1 + pad), w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad, adv, upem };
+}
+function renderImages(focus) {
+  const grid = $("img-grid");
+  grid.innerHTML = "";
+  const r = imgResult, f = imageFrame(r), gd = faceGuides(r);
+  const refCh = $("img-ref").value;
+  $("img-status").textContent = S.images.length
+    ? `${S.images.length} picture${S.images.length === 1 ? "" : "s"} in ${S.sets.find((x) => x.id === S.activeSet)?.name || "this font"} · press Regenerate to put them in the fonts`
+    : "No glyph images in this font yet.";
+  if (!r) $("img-status").textContent += " · Regenerate once so pictures can be sized to this face";
+  const used = {};
+  for (const g of S.images) if (g.enabled !== false && g.char) used[g.char] = g.id;   // the last one of a character wins
+  for (const g of S.images) {
+    const card = document.createElement("div");
+    card.className = "icard" + (g.enabled === false ? " off" : "");
+    const dupe = g.char && used[g.char] !== g.id && g.enabled !== false;
+    const scans = r?.chars?.[g.char]?.scans || (r?.chars?.[g.char] && !r.chars[g.char].image ? r.chars[g.char] : null);
+    const ref = refCh && refCh !== g.char ? r?.chars?.[refCh] : null;
+    const sw = f.h / 300;
+    const guide = (y, cls) => y == null ? "" : `<line x1="${f.x}" x2="${f.x + f.w}" y1="${-y}" y2="${-y}" class="${cls}" stroke-width="${sw}"/>`;
+    card.innerHTML = `
+      <div class="ic-head"><input class="ic-ch" maxlength="2" spellcheck="false" autocomplete="off" placeholder="?" title="Which character this picture is">
+        <span class="muted small ic-name"></span><span class="spacer"></span>
+        <label class="inline small" title="Use this picture when regenerating"><input type="checkbox" class="ic-on" ${g.enabled === false ? "" : "checked"}> use</label></div>
+      <div class="ic-ed"><svg viewBox="${f.x} ${f.y} ${f.w} ${f.h}" preserveAspectRatio="xMidYMid meet" tabindex="0">
+        <rect x="0" y="${f.y}" width="${f.adv}" height="${f.h}" class="cell" stroke-width="${sw}"/>
+        ${guide(0, "base")}${guide(gd.cap, "gl")}${guide(gd.x, "gl")}
+        ${ref?.avg_svg ? `<path d="${ref.avg_svg}" transform="scale(1,-1)" class="ghost-ref" fill-rule="evenodd"/>` : ""}
+        ${scans?.avg_img ? `<image href="${scans.avg_png}" x="${scans.avg_img[0]}" y="${scans.avg_img[1]}" width="${scans.avg_img[2]}" height="${scans.avg_img[3]}" preserveAspectRatio="none" class="ghost-scan"/>` : ""}
+        <image class="pic" href="/api/images/${g.id}/file" preserveAspectRatio="none"/>
+      </svg></div>
+      <div class="ic-foot"><span class="muted small ic-how"></span><span class="spacer"></span>
+        <button class="small ic-auto" title="Place it again automatically">Auto place</button>
+        <button class="small danger ic-del" title="Delete this picture">Delete</button></div>`;
+    card.querySelector(".ic-ch").value = g.char || "";
+    card.querySelector(".ic-name").textContent = g.name || g.file;
+    card.querySelector(".ic-name").title = g.file;
+    const svg = card.querySelector("svg"), pic = card.querySelector(".pic");
+    const how = () => {
+      const el = card.querySelector(".ic-how");
+      el.textContent = !g.char ? "type its character" : dupe ? `another picture of ${g.char} is used instead` :
+        { average: "fitted onto its scans", reference: "placed like a standard font", hand: "placed by hand", empty: "no ink found" }[g.how] || "";
+      el.style.color = !g.char || dupe ? "var(--warn,#f0a24d)" : "";
+    };
+    const put = () => {
+      const p = g.place; if (!p) return;
+      pic.setAttribute("x", p.x); pic.setAttribute("y", -p.y);
+      pic.setAttribute("width", (g.w || 1000) * p.s); pic.setAttribute("height", (g.h || 1000) * p.s);
+    };
+    put(); how();
+    let saveT = null;
+    const save = () => {
+      clearTimeout(saveT);
+      saveT = setTimeout(async () => {
+        try { Object.assign(g, await api(`/api/images/${g.id}`, { method: "POST", body: { place: g.place } })); how(); }
+        catch (e) { $("img-status").textContent = e.message; }
+      }, 250);
+    };
+    const toFont = (e) => { const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [pt.x, -pt.y]; };
+    let drag = null;
+    svg.addEventListener("pointerdown", (e) => { if (!g.place) return; svg.setPointerCapture(e.pointerId); svg.focus(); drag = { at: toFont(e), x: g.place.x, y: g.place.y }; });
+    svg.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const [X, Y] = toFont(e);
+      g.place = { ...g.place, x: drag.x + X - drag.at[0], y: drag.y + Y - drag.at[1] };
+      put();
+    });
+    svg.addEventListener("pointerup", () => { if (drag) { drag = null; g.how = "hand"; how(); save(); } });
+    svg.addEventListener("wheel", (e) => {
+      if (!g.place) return;
+      e.preventDefault();
+      const k = Math.exp(-e.deltaY * (e.shiftKey ? 0.0002 : 0.0015));
+      const [X, Y] = toFont(e), p = g.place;         // scale about the pointer
+      g.place = { x: X + (p.x - X) * k, y: Y + (p.y - Y) * k, s: p.s * k };
+      put(); g.how = "hand"; how(); save();
+    }, { passive: false });
+    svg.addEventListener("keydown", (e) => {
+      const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] }[e.key];
+      if (!d || !g.place) return;
+      e.preventDefault();
+      const n = (e.shiftKey ? 20 : 2);
+      g.place = { ...g.place, x: g.place.x + d[0] * n, y: g.place.y + d[1] * n };
+      put(); g.how = "hand"; how(); save();
+    });
+    card.querySelector(".ic-ch").addEventListener("change", async (e) => {
+      try { Object.assign(g, await api(`/api/images/${g.id}`, { method: "POST", body: { char: e.target.value.trim() } })); }
+      catch (err) { $("img-status").textContent = err.message; }
+      renderImages(g.id);
+    });
+    card.querySelector(".ic-on").addEventListener("change", async (e) => {
+      Object.assign(g, await api(`/api/images/${g.id}`, { method: "POST", body: { enabled: e.target.checked } }));
+      renderImages(g.id);
+    });
+    card.querySelector(".ic-auto").onclick = async () => {
+      Object.assign(g, await api(`/api/images/${g.id}`, { method: "POST", body: { auto: true } }));
+      put(); how();
+    };
+    card.querySelector(".ic-del").onclick = async () => {
+      await api(`/api/images/${g.id}`, { method: "DELETE" });
+      S.images = S.images.filter((x) => x.id !== g.id);
+      renderImages();
+    };
+    grid.appendChild(card);
+    if (focus === g.id) { card.scrollIntoView({ block: "center" }); card.classList.add("focus"); }
+  }
+}
+$("img-add").onclick = () => $("img-input").click();
+$("img-input").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  let last = null;
+  for (const [i, f] of files.entries()) {
+    $("img-status").textContent = `Adding ${f.name} (${i + 1}/${files.length})…`;
+    try {
+      const r = await fetch(`/api/images?name=${encodeURIComponent(f.name)}`, { method: "POST", body: f });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      last = (await r.json()).id;
+    } catch (err) { $("img-status").textContent = `${f.name}: ${err.message}`; }
+  }
+  S.images = await api("/api/images");
+  renderImages(last);
+});
+(() => {
+  const saved = (() => { try { return localStorage.getItem("ts.imgref"); } catch { return null; } })();
+  $("img-ref").value = saved ?? "H";
+  $("img-ref").addEventListener("input", () => { try { localStorage.setItem("ts.imgref", $("img-ref").value); } catch {} renderImages(); });
+})();
 
 resize();
 load();

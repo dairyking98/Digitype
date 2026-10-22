@@ -10,7 +10,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import regen
+from . import images, regen
 from .project import Project
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -37,7 +37,8 @@ def make_app(project: Project):
     def state():
         return {"root": project.root, "pages": project.meta["pages"], "sets": project.meta["sets"],
                 "active_set": project.meta["active_set"], "settings": project.settings(),
-                "boxes": boxes_with_cells(), "estimated_pitch_mm": regen.estimate_pitch_mm(project)}
+                "boxes": boxes_with_cells(), "estimated_pitch_mm": regen.estimate_pitch_mm(project),
+                "images": project.image_list()}
 
     @app.get("/api/project")
     def get_project():
@@ -72,6 +73,59 @@ def make_app(project: Project):
             return None
         with open(p, encoding="utf-8") as f:
             return json.load(f)
+
+    # glyph images: clean pictures of characters standing in for the scans
+    def place(g):
+        st = project.settings()
+        ink = images.load_ink(project.image_path(g))
+        pl, how = images.auto_place(ink, g.get("char") or "", result(), st["advance"], st["upem"])
+        return project.update_image(g["id"], {"place": pl, "how": how})
+
+    @app.get("/api/images")
+    def image_list():
+        return project.image_list()
+
+    @app.post("/api/images")
+    async def add_image(name: str, request: Request, char: str = ""):
+        stem = os.path.splitext(os.path.basename(name))[0]
+        if not char:          # a file named after its character: &.png, uni0026.png, U+0026.png
+            hexes = [stem[3:] if stem.lower().startswith("uni") else stem[2:] if stem.upper().startswith("U+") else ""]
+            if len(stem) == 1:
+                char = stem
+            elif len(hexes[0]) in (4, 5) and all(c in "0123456789abcdefABCDEF" for c in hexes[0]):
+                char = chr(int(hexes[0], 16))
+        try:
+            g = project.add_image(name, await request.body(), char)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return place(g)
+
+    @app.post("/api/images/{iid}")
+    def edit_image(iid: int, body: dict = Body(default={})):
+        try:
+            g = project.update_image(iid, {k: v for k, v in body.items() if k in ("char", "place", "enabled")})
+            if body.get("auto") or ("char" in body and not body.get("place") and g.get("how") != "hand"):
+                g = place(g)       # a new character: place it again, unless it was placed by hand
+            elif body.get("place"):
+                g = project.update_image(iid, {"how": "hand"})
+        except KeyError:
+            raise HTTPException(404, "no such image")
+        return g
+
+    @app.delete("/api/images/{iid}")
+    def delete_image(iid: int):
+        try:
+            project.delete_image(iid)
+        except KeyError:
+            raise HTTPException(404, "no such image")
+        return {"ok": True}
+
+    @app.get("/api/images/{iid}/file")
+    def image_file(iid: int):
+        try:
+            return FileResponse(project.image_path(project.image(iid)))
+        except KeyError:
+            raise HTTPException(404, "no such image")
 
     @app.post("/api/sources")
     def add_sources(body: dict = Body(...)):

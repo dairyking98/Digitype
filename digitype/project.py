@@ -284,6 +284,8 @@ class Project:
         """Only an empty set can go (its boxes would be lost)."""
         if any(b.get("set", 1) == sid for b in self.labels["boxes"]):
             raise ValueError("this font set still has boxes - delete them first")
+        if self.font_set(sid).get("images"):
+            raise ValueError("this font set still has glyph images - delete them first")
         if len(self.meta["sets"]) == 1:
             raise ValueError("a project needs at least one font set")
         with self._lock:
@@ -326,6 +328,73 @@ class Project:
     def delete_box(self, bid):
         with self._lock:
             self.labels["boxes"] = [b for b in self.labels["boxes"] if b["id"] != bid]
+        self.save()
+
+
+    # ------------------------------------------------------------ glyph images
+    # A clean picture of a character (cleaned up or drawn, by hand or with an
+    # AI image tool) that stands in for the scans' average: kept in
+    # glyph_images/, listed per font set with its character and placement.
+    def image_list(self, sid=None):
+        with self._lock:
+            return [dict(g) for g in self.font_set(sid).setdefault("images", [])]
+
+    def image(self, iid):
+        for st in self.meta["sets"]:
+            for g in st.get("images", []):
+                if g["id"] == iid:
+                    return g
+        raise KeyError(iid)
+
+    def image_path(self, g):
+        return os.path.join(self.root, "glyph_images", g["file"])
+
+    def add_image(self, name, data, char=""):
+        d = os.path.join(self.root, "glyph_images")
+        os.makedirs(d, exist_ok=True)
+        base = "".join(c if c.isalnum() or c in "-_. ()" else "_" for c in os.path.basename(name)) or "glyph.png"
+        stem, ext = os.path.splitext(base)
+        if ext.lower() not in IMAGE_EXT:
+            raise ValueError(f"not an image ({ext or 'no extension'}) - PNG, JPG, BMP, TIFF, WebP")
+        path, k = os.path.join(d, base), 1
+        while os.path.exists(path):
+            path = os.path.join(d, f"{stem} ({k}){ext}")
+            k += 1
+        with open(path, "wb") as f:
+            f.write(data)
+        try:
+            with Image.open(path) as im:
+                size = im.size
+        except Exception as e:
+            os.remove(path)
+            raise ValueError(f"couldn't read the image: {e}")
+        with self._lock:
+            iid = self.meta.get("next_image_id", 1)
+            self.meta["next_image_id"] = iid + 1
+            g = {"id": iid, "file": os.path.basename(path), "name": name, "char": char, "w": size[0], "h": size[1],
+                 "place": None, "enabled": True, "created": time.time()}
+            self.font_set().setdefault("images", []).append(g)
+        self.save()
+        return g
+
+    def update_image(self, iid, fields):
+        with self._lock:
+            g = self.image(iid)
+            for k in ("char", "place", "enabled", "how"):
+                if k in fields:
+                    g[k] = fields[k]
+        self.save()
+        return dict(g)
+
+    def delete_image(self, iid):
+        with self._lock:
+            g = self.image(iid)
+            for st in self.meta["sets"]:
+                st["images"] = [x for x in st.get("images", []) if x["id"] != iid]
+        try:
+            os.remove(self.image_path(g))
+        except OSError:
+            pass
         self.save()
 
 
