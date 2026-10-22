@@ -170,6 +170,26 @@ needs more samples or a label fix). Click a card to enlarge it.
 **Test type** at the top sets any text you type in both fonts as soon as they're written, with
 a size slider. Characters the font doesn't have yet are listed underneath.
 
+## Glyph images (cleaned-up or drawn characters)
+
+The **Glyph images** tab takes clean pictures of single characters: a glyph you cleaned up, or a
+character the samples don't have at all, drawn by hand or made with an AI image tool. When you
+Regenerate, a picture is used instead of the scans for its character, in both fonts (the scans
+are kept, just not used; untick *use* to go back to them).
+
+1. **Add glyph images…** (PNG, JPG, BMP, TIFF, WebP; dark on light, or on transparent).
+2. Type which character each picture is. A file named after its character (`&.png`,
+   `uni0026.png`, `U+0026.png`) is filled in for you.
+3. It is placed automatically: onto the character's own average when it has samples, otherwise
+   where DejaVu Sans Mono puts that character, scaled to this face's cap height (Regenerate
+   once first so the face's size is known). **Drag** to move, **wheel** to scale (Shift = fine),
+   arrow keys nudge (Shift ×10); **Auto place** starts over. *Compare with* draws another
+   character of the font faintly behind every picture, for size and weight.
+
+To clean up a glyph you already have: enlarge it in Results and **Save picture for clean-up**.
+It saves an enlarged averaged scan named `uniXXXX.png`; clean it up and add the result back,
+and it is labelled and fitted onto its scans by itself.
+
 ## The fonts
 
 Both fonts are true monospaced fonts: every glyph is one cell wide (600 units on a
