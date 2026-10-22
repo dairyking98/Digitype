@@ -141,19 +141,63 @@ class Project:
                 return p
         raise KeyError(pid)
 
+    @staticmethod
+    def _orient_key(page):
+        q, r = int(page.get("quarter", 0)) % 4, float(page.get("rotation", 0.0))
+        return "" if not q and not r else f"_q{q}_r{r:+.2f}"
+
     def grey(self, pid):
-        """The page as a uint8 grey array (memory-mapped from the cache)."""
-        path = os.path.join(self.root, "cache", f"page_{pid}.npy")
+        """The page as a uint8 grey array (memory-mapped from the cache),
+        turned the way the page's quarter turns and rotation say."""
+        page = self.page(pid)
+        path = os.path.join(self.root, "cache", f"page_{pid}{self._orient_key(page)}.npy")
         if not os.path.isfile(path):
             with self._lock:
                 if not os.path.isfile(path):
-                    arr = _load_grey(self.page(pid))
+                    arr = _orient(_load_grey(page), page)
                     np.save(path + ".tmp.npy", arr)
                     os.replace(path + ".tmp.npy", path)
         return np.load(path, mmap_mode="r")
 
+    def set_page(self, pid, dpi=None, rotation=None, quarter=None):
+        """A page's dpi (as the user knows it, when the file's is missing or
+        wrong) and orientation: quarter turns clockwise and a fine rotation
+        in degrees (clockwise +). The page's boxes move with it."""
+        page = self.page(pid)
+        if dpi is not None:
+            page["dpi"] = float(dpi) if dpi else None
+        if rotation is not None or quarter is not None:
+            old = (int(page.get("quarter", 0)) % 4, float(page.get("rotation", 0.0)))
+            new = (old[0] if quarter is None else int(quarter) % 4,
+                   old[1] if rotation is None else max(-45.0, min(45.0, float(rotation))))
+            if new != old:
+                w0, h0 = page.get("w0", page["w"] if old[0] % 2 == 0 else page["h"]), page.get("h0", page["h"] if old[0] % 2 == 0 else page["w"])
+                page["w0"], page["h0"] = w0, h0
+                with self._lock:
+                    for b in self.labels["boxes"]:
+                        if b["page"] != pid:
+                            continue
+                        cx, cy = b["x"] + b["w"] / 2, b["y"] + b["h"] / 2
+                        ox, oy = _to_original(cx, cy, w0, h0, *old)
+                        nx, ny = _from_original(ox, oy, w0, h0, *new)
+                        bw, bh = (b["h"], b["w"]) if (new[0] - old[0]) % 2 else (b["w"], b["h"])
+                        b["x"], b["y"], b["w"], b["h"] = nx - bw / 2, ny - bh / 2, bw, bh
+                        if b.get("baseline") is not None:   # a hand-set baseline can't follow a turn reliably
+                            b["baseline"] = None
+                page["quarter"], page["rotation"] = new
+                page["w"], page["h"] = (w0, h0) if new[0] % 2 == 0 else (h0, w0)
+                for f in os.listdir(os.path.join(self.root, "cache")):     # drop this page's other orientations
+                    if f.startswith((f"page_{pid}_", f"preview_{pid}_")) or f in (f"page_{pid}.npy", f"preview_{pid}.jpg"):
+                        if self._orient_key(page) not in f or not self._orient_key(page):
+                            try:
+                                os.remove(os.path.join(self.root, "cache", f))
+                            except OSError:
+                                pass
+        self.save()
+        return page
+
     def preview(self, pid):
-        path = os.path.join(self.root, "cache", f"preview_{pid}.jpg")
+        path = os.path.join(self.root, "cache", f"preview_{pid}{self._orient_key(self.page(pid))}.jpg")
         if not os.path.isfile(path):
             g = self.grey(pid)
             im = Image.fromarray(np.asarray(g))
@@ -275,6 +319,48 @@ def _pages_of(path):
         out.append({"file": path, "frame": fr, "name": name if n == 1 else f"{name} #{fr + 1}",
                     "w": im.width, "h": im.height, "dpi": float(dpi) if dpi and dpi > 72 else None})
     return out
+
+
+def _orient(arr, page):
+    """Quarter turns clockwise, then a fine rotation (degrees, clockwise +)
+    about the centre, the page keeping its size; uncovered corners white."""
+    q = int(page.get("quarter", 0)) % 4
+    if q:
+        arr = np.ascontiguousarray(np.rot90(arr, k=-q))
+    r = float(page.get("rotation", 0.0))
+    if r:
+        from scipy import ndimage
+        arr = ndimage.rotate(arr, -r, reshape=False, order=1, cval=255, output=np.uint8)
+    return arr
+
+
+def _quarter_fwd(x, y, w, h, q):
+    """A point after q clockwise quarter turns of a w x h image."""
+    for _ in range(q % 4):
+        x, y, w, h = h - y, x, h, w
+    return x, y, w, h
+
+
+def _from_original(x, y, w0, h0, q, r):
+    x, y, w, h = _quarter_fwd(x, y, w0, h0, q)
+    if r:
+        t = np.radians(r)                       # clockwise on screen (y down)
+        cx, cy = w / 2, h / 2
+        dx, dy = x - cx, y - cy
+        x, y = cx + dx * np.cos(t) - dy * np.sin(t), cy + dx * np.sin(t) + dy * np.cos(t)
+    return float(x), float(y)
+
+
+def _to_original(x, y, w0, h0, q, r):
+    w, h = (w0, h0) if q % 2 == 0 else (h0, w0)
+    if r:
+        t = np.radians(-r)
+        cx, cy = w / 2, h / 2
+        dx, dy = x - cx, y - cy
+        x, y = cx + dx * np.cos(t) - dy * np.sin(t), cy + dx * np.sin(t) + dy * np.cos(t)
+    for _ in range(q % 4):                      # undo one clockwise turn: (x, y) in w x h -> (y, w - x)
+        x, y, w, h = y, w - x, h, w
+    return float(x), float(y)
 
 
 def _load_grey(page):

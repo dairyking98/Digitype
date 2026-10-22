@@ -8,7 +8,7 @@ const api = async (url, opts = {}) => {
   return r.json();
 };
 
-const S = { pages: [], boxes: [], allBoxes: [], sets: [], activeSet: 1, settings: {}, page: null, img: null, imgScale: 1, hi: null,
+const S = { rotPreview: 0, guides: false, mouseY: null, pages: [], boxes: [], allBoxes: [], sets: [], activeSet: 1, settings: {}, page: null, img: null, imgScale: 1, hi: null,
   zoom: 1, panX: 0, panY: 0, sel: null, drag: null, draft: null, space: false, editing: null, jump: {} };
 const cv = $("cv"), ctx = cv.getContext("2d");
 const dpr = () => window.devicePixelRatio || 1;
@@ -129,6 +129,7 @@ function renderPages() {
     el.appendChild(d);
   }
   if (!S.pages.length) el.innerHTML = '<p class="muted">No pages yet - add a file or folder below.</p>';
+  showPageTools();
 }
 
 function renderGlyphs() {
@@ -188,14 +189,58 @@ async function openPage(id) {
   renderPages();
   $("log").textContent = `Loading ${S.page.name}… (a big scan takes a moment the first time)`;
   const img = new Image();
-  img.src = `/api/page/${id}/preview`;
+  img.src = `/api/page/${id}/preview?o=${S.page.quarter || 0}_${S.page.rotation || 0}`;   // a new address per orientation
   await img.decode().catch(() => {});
   if (S.page.id !== id) return;
   S.img = img;
   S.imgScale = img.naturalWidth / S.page.w;
   $("log").textContent = "";
+  showPageTools();
   fit();
 }
+
+// ------------------------------------------------------------------ this page: dpi, rotation, guides
+function showPageTools() {
+  const p = S.page;
+  $("page-tools").hidden = !p;
+  if (!p) return;
+  $("pg-info").textContent = `${p.w} × ${p.h} px` + (p.quarter ? ` · turned ${p.quarter * 90}°` : "");
+  $("pg-dpi").value = p.dpi || "";
+  const r = p.rotation || 0;
+  $("pg-rot").value = Math.max(-10, Math.min(10, r)); $("pg-rot-n").value = r;
+}
+async function reloadPage(refit) {
+  const id = S.page.id;
+  const img = new Image();
+  img.src = `/api/page/${id}/preview?v=${Date.now()}`;
+  $("log").textContent = "Turning the page…";
+  await img.decode().catch(() => {});
+  if (S.page.id !== id) return;
+  S.img = img; S.imgScale = img.naturalWidth / S.page.w; S.hi = null; S.rotPreview = 0;
+  $("log").textContent = "";
+  showPageTools();
+  if (refit) fit(); else viewChanged();
+}
+async function setPage(body, refit) {
+  const r = await api(`/api/page/${S.page.id}`, { method: "POST", body });
+  Object.assign(S.page, r.page);
+  const i = S.pages.findIndex((p) => p.id === S.page.id); if (i >= 0) S.pages[i] = S.page;
+  setBoxes(r.boxes);
+  renderGlyphs(); renderSets();
+  if ("rotation" in body || "quarter" in body) await reloadPage(refit); else showPageTools();
+}
+$("pg-dpi").addEventListener("change", (e) => setPage({ dpi: e.target.value ? Number(e.target.value) : null }));
+$("pg-rot").addEventListener("input", (e) => {          // live: turn what's on screen, guides on
+  S.rotPreview = Number(e.target.value) - (S.page.rotation || 0);
+  $("pg-rot-n").value = e.target.value;
+  draw();
+});
+$("pg-rot").addEventListener("change", (e) => setPage({ rotation: Number(e.target.value) }));
+$("pg-rot-n").addEventListener("change", (e) => setPage({ rotation: Number(e.target.value) || 0 }));
+$("pg-rot0").onclick = () => setPage({ rotation: 0 });
+$("pg-ql").onclick = () => setPage({ quarter: ((S.page.quarter || 0) + 3) % 4 }, true);
+$("pg-qr").onclick = () => setPage({ quarter: ((S.page.quarter || 0) + 1) % 4 }, true);
+$("pg-guides").addEventListener("change", (e) => { S.guides = e.target.checked; draw(); });
 
 function fit() {
   const r = cv.getBoundingClientRect();
@@ -248,6 +293,11 @@ function draw() {
   if (!S.page || !S.img) return;
   const d = dpr(), z = S.zoom;
   ctx.setTransform(d * z, 0, 0, d * z, d * S.panX, d * S.panY);
+  if (S.rotPreview) {                            // dragging the rotation: turn the page about its centre
+    ctx.translate(S.page.w / 2, S.page.h / 2);
+    ctx.rotate(S.rotPreview * Math.PI / 180);
+    ctx.translate(-S.page.w / 2, -S.page.h / 2);
+  }
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(S.img, 0, 0, S.page.w, S.page.h);
   if (S.hi) ctx.drawImage(S.hi.img, S.hi.x, S.hi.y, S.hi.w, S.hi.h);
@@ -294,6 +344,28 @@ function draw() {
   if (S.draft) {
     ctx.strokeStyle = "#6c9cff"; ctx.lineWidth = lw; ctx.setLineDash([6 / z, 4 / z]);
     ctx.strokeRect(S.draft.x, S.draft.y, S.draft.w, S.draft.h); ctx.setLineDash([]);
+  }
+  if (S.guides || S.rotPreview) drawGuides();
+}
+
+// guide rule: level lines fixed to the screen, to line the text up against
+// while straightening a page; the one under the pointer is stronger
+function drawGuides() {
+  const d = dpr();
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  const r = cv.getBoundingClientRect(), step = 32;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(0, 170, 255, .35)";
+  ctx.beginPath();
+  for (let y = step / 2; y < r.height; y += step) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(r.width, Math.round(y) + 0.5); }
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(0, 170, 255, .15)";
+  ctx.beginPath();
+  for (let x = step / 2; x < r.width; x += step * 4) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, r.height); }
+  ctx.stroke();
+  if (S.mouseY != null) {
+    ctx.strokeStyle = "rgba(255, 60, 60, .8)";
+    ctx.beginPath(); ctx.moveTo(0, S.mouseY + 0.5); ctx.lineTo(r.width, S.mouseY + 0.5); ctx.stroke();
   }
 }
 // resize handles of the selected box: corners and edge middles; l/r/t/b
@@ -350,6 +422,8 @@ cv.addEventListener("mousedown", (e) => {
   S.drag = { kind: "new" };
 });
 cv.addEventListener("mousemove", (e) => {
+  S.mouseY = e.clientY - cv.getBoundingClientRect().top;
+  if (S.guides || S.rotPreview) draw();
   if (S.drag || S.space) return;
   const [px, py] = toPage(e);
   const h = handleAt(px, py);

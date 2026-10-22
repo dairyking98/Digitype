@@ -57,6 +57,17 @@ page of a PDF is a page (rendered at 600 dpi). Add more at any time:
 
 Big scans are fine: each page is converted to grey once and cached, so later visits are quick.
 
+**This page** (under the page list) has per-page tools:
+
+- **DPI.** Files often carry a wrong resolution or none. Set the real one here if you know it.
+  It is only used to turn the pitch setting into pixels; glyph sizes come from the cells
+  themselves.
+- **Rotate.** Straighten a crooked scan: drag the slider and the page turns live under fixed
+  guide lines; line a row of text up with them and let go. Type an exact angle in the box
+  (clockwise +, up to 45°), **0°** resets, and **⟲ 90° / ⟳ 90°** turn the page a quarter turn.
+  Boxes already on the page turn with it (a hand-set baseline goes back to automatic).
+- **Guides** shows the guide lines at any time; the red one follows the pointer.
+
 **Font sets.** One project can hold several typefaces, for example a sample book with a
 different face on every page. Each typeface is its own **font set**, chosen in the top bar:
 
@@ -72,15 +83,17 @@ different face on every page. Each typeface is its own **font set**, chosen in t
 **Draw a box** around a character and type it, then press Enter.
 
 **Type a whole line.** Draw one box around a run of text and type exactly what it says,
-spaces included. The box is split into fixed-pitch cells, one per character, and each cell's
-character is drawn under it so you can check the fit at a glance. This is the fast way to
-label body text, which gives you many samples of every common letter.
+spaces included. The box becomes one cell per character, and each cell's character is drawn
+under it so you can check the fit at a glance. This is the fast way to label body text, which
+gives you many samples of every common letter.
 
-- The split uses the font set's pitch when the box agrees with it, and finds where the cell
-  boundaries go from the gaps between letters and the spaces in your text.
-- A cell that clearly missed its glyph (in a chart whose glyphs are grouped rather than evenly
-  spaced) snaps onto the nearest glyph. Small offsets are left alone: they are the face's own
-  placement in its cell.
+- The glyphs along the line are found first, and your text is matched to them in order, so
+  each letter's cell sits on its own glyph, even in rows whose spacing changes along the line
+  (charts set or pasted together rather than typed in one go).
+- Where glyphs can't be told apart (letters running together), the line is split on an even
+  grid, its pitch measured from the row's own rhythm.
+- Where the ink shows a gap your text doesn't have (or the other way round), the spacing is
+  adjusted to the ink and the box says so ("+1 space after …"), so you can fix the text.
 - Type accented letters as they are on the page (Ä, ü, é…). A plain letter labelled where the
   page has an accented one adds the accent to the plain letter.
 

@@ -16,8 +16,17 @@ back).
 ## 1. Cells
 
 A typewriter prints every character in a cell of the same width (the pitch). A box labelled
-with one character is one cell. A box labelled with a run of text is split into one cell per
-character:
+with one character is one cell. A box labelled with a run of text gets one cell per character:
+
+- **Glyphs first.** Runs of inked columns are found along the row (runs a hair apart joined,
+  runs clearly wider than a letter split at their thinnest column), and the text's characters
+  are matched to them in order by dynamic programming: a glyph no letter takes, a letter with
+  no glyph, and spacing unlike the text's spaces each cost something. Each letter's cell is
+  centred on its glyph. This follows rows whose spacing changes along the line.
+- **Even grid (fallback),** when glyphs run together: the pitch is measured from the row's
+  rhythm (the autocorrelation of its column profile), the grid placed so its boundaries fall in
+  the gaps, and the text fitted to the grid the same way, allowing extra or missing spaces.
+  The older scoring below is the last resort.
 
 - **Pitch.** When the box's width divided by its characters agrees with the font set's pitch
   (within 8%), the set's pitch is used; otherwise the box's own.
@@ -61,8 +70,9 @@ belongs to the cell when:
   above its top (dots of i and j, umlauts, accents, the circles of %, the top of `:` and `=`);
 - with no body at all (`' " ^`), the marks are the glyph.
 
-The line above and below, and the letters beside it, have their centres elsewhere. A piece
-wider than a letter (two letters touching) is trimmed to its own cell.
+The line above and below, and the letters beside it, have their centres elsewhere. Letters
+that touch are cut apart at the thinnest column near the cell's edge when a piece reaches
+into the next cell's middle.
 
 **Soft edges.** Instead of keeping the black/white cut, the sample keeps the scan's grey
 levels around the kept pieces: 0 for paper, 1 for full ink. How dark an edge pixel is pins the

@@ -98,6 +98,18 @@ def make_app(project: Project):
         im.save(buf, "JPEG", quality=88)
         return Response(buf.getvalue(), media_type="image/jpeg")
 
+    @app.post("/api/page/{pid}")
+    def set_page(pid: int, body: dict = Body(default={})):
+        try:
+            page = project.set_page(pid, dpi=body.get("dpi", None) if "dpi" in body else None,
+                                    rotation=body.get("rotation"), quarter=body.get("quarter"))
+        except KeyError:
+            raise HTTPException(404, "no such page")
+        if "dpi" in body and not body["dpi"]:
+            page["dpi"] = None
+            project.save()
+        return {"page": page, "boxes": boxes_with_cells()}
+
     @app.post("/api/box")
     def save_box(box: dict = Body(...)):
         for k in ("page", "x", "y", "w", "h"):

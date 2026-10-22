@@ -89,3 +89,6 @@ button.small { padding: 2px 8px; font-size: 11px; }
 .upload { width: 100%; margin-top: 12px; }
 #set-bmode, #set-place { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; width: 100%; margin-top: 3px; }
 #sel-set { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; width: 100%; margin-top: 3px; }
+.page-tools { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.page-tools #pg-rot { padding: 0; }
+.page-tools #pg-rot-n { width: 90px; }
