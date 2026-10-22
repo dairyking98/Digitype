@@ -79,3 +79,10 @@ label.inline select, #res-sort { font: inherit; color: var(--text); background: 
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 button.small { padding: 2px 8px; font-size: 11px; }
 .ov-odd { background: #2d2216; border: 1px solid #5a4020; color: #f0c48d; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }
+.testtype { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.tt-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.tt-bar #tt-text { flex: 1; min-width: 200px; font: 15px ui-monospace, monospace; }
+.tt-bar input[type=range] { width: 140px; }
+.tt-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin: 4px 0; }
+.tt-lab { color: var(--text-3); font-size: 11px; text-align: right; }
+.tt-sample { background: #fff; color: #000; border-radius: 6px; padding: 6px 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.25; min-height: 1.4em; }

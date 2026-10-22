@@ -561,9 +561,44 @@ const SORTS = {
   fewest: { label: "fewest samples", fn: (a, b) => (a[1].n || 0) - (b[1].n || 0) || a[0].localeCompare(b[0]) },
   match: { label: "worst match first", fn: (a, b) => (a[1].iou ?? 2) - (b[1].iou ?? 2) },
 };
+// Test type: the two fonts just written, loaded straight into the page
+let ttStamp = 0;
+async function loadTestFonts(r) {
+  const stamp = ++ttStamp;
+  const out = {};
+  for (const [kind, file] of Object.entries(r.fonts || {})) {
+    const fam = `ts-${kind}-${stamp}`;
+    try {
+      const ff = new FontFace(fam, `url("/api/out/${encodeURIComponent(r.out)}/${encodeURIComponent(file)}?v=${Date.now()}")`);
+      await ff.load();
+      document.fonts.add(ff);
+      out[kind] = fam;
+    } catch { out[kind] = null; }
+  }
+  if (stamp !== ttStamp) return;
+  const set = (id, fam) => { const el = $(id); el.style.fontFamily = fam ? `"${fam}", monospace` : "monospace"; el.style.opacity = fam ? 1 : 0.4; };
+  set("tt-avg", out.average); set("tt-seed", out.seed);
+  paintTestType(r);
+}
+function paintTestType(r) {
+  const t = $("tt-text").value;
+  const size = $("tt-size").value + "px";
+  for (const id of ["tt-avg", "tt-seed"]) { $(id).textContent = t; $(id).style.fontSize = size; }
+  const have = new Set(Object.keys(r.chars || {}).filter((c) => r.chars[c].avg_svg));
+  const missing = [...new Set([...t])].filter((c) => !/\s/.test(c) && !have.has(c));
+  $("tt-missing").textContent = missing.length ? `Not in this font yet (shown in a stand-in): ${missing.join(" ")}` : "";
+}
+(() => {
+  const saved = (() => { try { return localStorage.getItem("ts.tt") || ""; } catch { return ""; } })();
+  $("tt-text").value = saved || "The quick brown fox jumps over the lazy dog 0123456789";
+  $("tt-text").addEventListener("input", () => { try { localStorage.setItem("ts.tt", $("tt-text").value); } catch {} if (lastResult) paintTestType(lastResult); });
+  $("tt-size").addEventListener("input", () => { if (lastResult) paintTestType(lastResult); });
+})();
+
 let lastResult = null;
 function renderResult(r) {
   lastResult = r;
+  loadTestFonts(r);
   const fonts = Object.entries(r.fonts || {}).map(([k, f]) => `<a class="dl" href="/api/out/${encodeURIComponent(r.out)}/${encodeURIComponent(f)}" download>${f}</a>`).join(" · ");
   const est = r.estimated_pitch_mm ? ` · your text runs suggest ${r.estimated_pitch_mm.toFixed(3)} mm` : "";
   const sort = localStorage.getItem("ts.sort") || "char";

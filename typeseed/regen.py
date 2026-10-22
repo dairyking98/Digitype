@@ -270,7 +270,7 @@ def average(samples, pitch, max_shift_frac=0.12):
         stack.append(canvas)
     stack = np.array(stack)
     odd = []
-    if len(stack) >= 3:
+    if len(stack) >= 2:                      # register: overlap the samples as well as they go
         ref = np.median(stack, axis=0)
         # sideways a cell split can drift by up to half a cell along a line,
         # so the samples line themselves up by up to that; up and down only a
@@ -291,7 +291,8 @@ def average(samples, pitch, max_shift_frac=0.12):
         med = float(np.median(ious))
         cut = med - 0.15
         keep = [i for i, v in enumerate(ious) if v >= cut]
-        if len(keep) >= max(2, len(stack) // 2) and len(keep) < len(stack):
+        # leaving one out needs 3 or more to say which one is odd
+        if len(stack) >= 3 and len(keep) >= max(2, len(stack) // 2) and len(keep) < len(stack):
             for i, v in enumerate(ious):
                 if v < cut:
                     info = samples[i][3] if len(samples[i]) > 3 else {}

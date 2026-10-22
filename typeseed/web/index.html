@@ -47,6 +47,16 @@
 
   <section id="view-result" class="center result" hidden>
     <div id="result-head"></div>
+    <div id="testtype" class="testtype">
+      <div class="tt-bar">
+        <b>Test type</b>
+        <input id="tt-text" spellcheck="false" autocomplete="off">
+        <label class="inline" title="Type size">Size <input id="tt-size" type="range" min="16" max="160" value="56"></label>
+      </div>
+      <div class="tt-row"><span class="tt-lab">Average (traced)</span><div id="tt-avg" class="tt-sample"></div></div>
+      <div class="tt-row"><span class="tt-lab">Seed (regrown)</span><div id="tt-seed" class="tt-sample"></div></div>
+      <div id="tt-missing" class="muted small"></div>
+    </div>
     <div id="result-grid"></div>
   </section>
 
