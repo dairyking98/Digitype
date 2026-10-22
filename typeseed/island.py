@@ -173,7 +173,7 @@ def prune(isl, ratio=2.5, corner_frac=0.35, min_px=3.0, rounds=8):
         for i, br in enumerate(isl.branches):
             if br.a == br.b:                 # a loop: a pinhole's ring if it's short for its depth
                 if isl.degree(br.a) > 2 and br.length < 4 * max(br.depth.max(), 1):
-                    drop.append(i)
+                    drop.append((br.length, i))
                 continue
             da, db = isl.degree(br.a), isl.degree(br.b)
             if da == 1 and db == 1:          # a lone segment: its own piece of ink - keep

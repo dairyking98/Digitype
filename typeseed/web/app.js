@@ -453,7 +453,7 @@ function renderResult(r) {
       const card = document.createElement("div");
       card.className = "rcard";
       if (!g.n) { card.innerHTML = `<div class="t"><b></b><span class="muted">${g.error || "no samples"}</span></div>`; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
-      card.innerHTML = `<div class="t"><b></b><span class="muted">${g.n} sample${g.n === 1 ? "" : "s"}${g.iou != null ? ` · match ${g.iou}` : ""}</span></div>
+      card.innerHTML = `<div class="t"><b></b><span class="muted">${g.n} sample${g.n === 1 ? "" : "s"}${g.iou != null ? ` · match ${g.iou}` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}</span></div>
         <div class="imgs"><div><img alt="" src="${g.avg_png}"></div><div>${svgOf(g.avg_svg, null, r.advance)}</div><div>${svgOf(g.seed_svg, show() ? g.strokes : null, r.advance)}</div></div>
         <div class="cap"><span>averaged</span><span>traced</span><span>seed, regrown</span></div>`;
       card.querySelector("b").textContent = ch;

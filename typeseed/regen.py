@@ -279,7 +279,7 @@ def regenerate(project, chars=None, log=print):
     out_dir = os.path.join(project.root, "out")
     os.makedirs(os.path.join(out_dir, "seeds"), exist_ok=True)
     results, seed_glyphs, avg_glyphs = {}, {}, {}
-    adv, upem, up = st["advance"], st["upem"], int(st["upsample"])
+    adv, upem = st["advance"], st["upem"]
     todo = sorted(by_char) if not chars else [c for c in chars if c in by_char]
     for n_done, ch in enumerate(todo, 1):
         items = by_char[ch]
@@ -291,36 +291,63 @@ def regenerate(project, chars=None, log=print):
         if not samples:
             results[ch] = {"n": 0, "error": "no usable samples"}
             continue
-        prob, base, cx, n = average(samples, p)
-        hi = np.clip(ndimage.zoom(prob, up, order=1), 0, 1)
-        k = adv / (p * up)                                   # font units per upsampled pixel
-        ink = clean(hi > 0.5)
-        avg_shape = _trace(hi)
-        grown = None
-        seed = None
-        if ink.any():
+        try:
+            res = _one_glyph(ch, samples, p, page0, st, out_dir, skipped, log)
+        except Exception as e:                 # one bad glyph shouldn't stop the font
+            import traceback
+            log(f"    {ch!r} failed: {e}\n" + traceback.format_exc(limit=3))
+            results[ch] = {"n": len(samples), "error": f"failed: {e}"}
+            continue
+        results[ch], grown_u, avg_u = res
+        if grown_u is not None:
+            seed_glyphs[ch] = grown_u
+        if avg_u is not None:
+            avg_glyphs[ch] = avg_u
+    return _finish(project, st, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log)
+
+
+def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
+    """Average one character's samples, trace it, seed it, grow it back.
+    -> (result for the page, regrown shape, traced shape), font units. If
+    only the seed step fails, the traced average still goes in the font."""
+    adv, upem, up = st["advance"], st["upem"], int(st["upsample"])
+    prob, base, cx, n = average(samples, p)
+    hi = np.clip(ndimage.zoom(prob, up, order=1), 0, 1)
+    k = adv / (p * up)                                   # font units per upsampled pixel
+    avg_shape = _trace(hi)
+    avg_u = _to_units(avg_shape, k, cx * up, base * up, adv).simplify(1.0) if avg_shape is not None else None
+    grown_u, seed, seed_error = None, None, None
+    ink = clean(hi > 0.5)
+    if ink.any():
+        try:
             isl = island.sink(ink)
             island.prune(isl)
             grid = Grid(adv / 2 - cx * up * k, base * up * k, 1.0 / k, ink.shape)
             seed = from_island(isl, grid, ch, adv, upem)
             seed.meta = {"samples": n, "pitch_mm": st["pitch_mm"], "dpi": page0.get("dpi")}
             grown = G.grow(seed, weight=st["weight"], add=st["add"])
+            grown_u = grown.simplify(1.5) if grown is not None else None
             with open(os.path.join(out_dir, "seeds", f"seed_{ord(ch):04x}.json"), "w", encoding="utf-8") as f:
                 f.write(seed.to_json())
-        avg_u = _to_units(avg_shape, k, cx * up, base * up, adv) if avg_shape is not None else None
-        if grown is not None:
-            seed_glyphs[ch] = grown.simplify(1.5)
-        if avg_u is not None:
-            avg_glyphs[ch] = avg_u.simplify(1.0)
-        buf = io.BytesIO()
-        Image.fromarray(((1 - prob) * 255).astype(np.uint8)).save(buf, "PNG")
-        results[ch] = {
-            "n": n, "skipped": skipped,
-            "avg_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(),
-            "seed_svg": _svg(seed_glyphs.get(ch)), "avg_svg": _svg(avg_glyphs.get(ch)),
-            "strokes": [st_.points for st_ in seed.strokes] if seed else [],
-            "iou": round(G.iou(seed_glyphs.get(ch), avg_glyphs.get(ch)), 3) if ch in seed_glyphs and ch in avg_glyphs else None,
-        }
+        except Exception as e:
+            import traceback
+            seed_error = f"seed failed: {e}"
+            log(f"    {ch!r} {seed_error} (its traced average is still in the font)\n" + traceback.format_exc(limit=3))
+    buf = io.BytesIO()
+    Image.fromarray(((1 - prob) * 255).astype(np.uint8)).save(buf, "PNG")
+    result = {
+        "n": n, "skipped": skipped,
+        "avg_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(),
+        "seed_svg": _svg(grown_u), "avg_svg": _svg(avg_u),
+        "strokes": [s_.points for s_ in seed.strokes] if seed else [],
+        "iou": round(G.iou(grown_u, avg_u), 3) if grown_u is not None and avg_u is not None else None,
+    }
+    if seed_error:
+        result["warning"] = seed_error
+    return result, grown_u, avg_u
+
+
+def _finish(project, st, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log):
     name = st.get("font_name") or os.path.basename(project.root.rstrip("/\\")) or "Type Seed"
     fonts = {}
     for label, glyphs in (("Seed", seed_glyphs), ("Average", avg_glyphs)):
