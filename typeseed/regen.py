@@ -413,12 +413,16 @@ def average(samples, pitch, max_shift_frac=0.12):
         # little (the baseline is measured)
         cellw = float(np.median([s[3]["w"] for s in samples if len(s) > 3] or [pitch]))
         for _ in range(2):
-            ref = _wmean(stack, wts) if len(stack) < 3 else np.median(stack, axis=0)
             for i in range(len(stack)):
+                # against the OTHER samples only: matched against an average
+                # that includes itself, a sample finds its own copy and
+                # never moves (with two samples, nothing would line up)
+                others = [j for j in range(len(stack)) if j != i]
+                ref = np.median(stack[others], axis=0) if len(others) >= 3 else _wmean(stack[others], wts[others])
                 (dy, dx), _, _ = phase_cross_correlation(ref, stack[i], upsample_factor=8, normalization=None)
                 if abs(dx) <= 0.5 * cellw and abs(dy) <= max_shift_frac * cellw:
                     stack[i] = ndimage.shift(stack[i], (dy, dx), order=1)
-        major = _wmean(stack, wts) >= 0.5
+        major = _wmean(stack, wts) >= 0.49
         ious = []
         for i in range(len(stack)):
             m = stack[i] >= 0.5
@@ -442,8 +446,9 @@ def _wmean(stack, wts):
 
 
 # ------------------------------------------------------------------ geometry
-def _trace(prob, level=0.5):
-    """The 0.5 contour of a probability map as one shape (px, y down)."""
+def _trace(prob, level=0.49):
+    """The half-way contour of a probability map as one shape (px, y down) -
+    an exact tie (one of two samples) counts as ink."""
     cs = measure.find_contours(np.pad(prob, 1), level)
     polys = [Polygon(np.column_stack([c[:, 1] - 1, c[:, 0] - 1])).buffer(0) for c in cs if len(c) >= 4]
     polys = [p for p in polys if not p.is_empty and p.area > 1]
@@ -514,7 +519,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     avg_shape = _trace(hi)
     avg_u = _to_units(avg_shape, k, cx * up, base * up, adv).simplify(1.0) if avg_shape is not None else None
     grown_u, seed, seed_error = None, None, None
-    ink = clean(hi > 0.5)
+    ink = clean(hi >= 0.49)
     if ink.any():
         try:
             isl = island.sink(ink)
