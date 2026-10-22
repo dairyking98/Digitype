@@ -22,7 +22,8 @@ PDF_DPI = 600
 PREVIEW_MAX = 2400
 DEFAULT_SETTINGS = {"pitch_mm": 2.54, "upem": 1000, "advance": 600, "font_name": "", "upsample": 4,
                     "weight": 1.0, "add": 0.0, "expand_left": 0.5, "expand_right": 0.5,
-                    "baseline_mode": "adaptive", "tilt_correction": True, "placement": "typed"}
+                    "baseline_mode": "adaptive", "tilt_correction": True, "placement": "typed",
+                    "soft_edges": True, "smooth": 1.0}
 
 
 class Project:

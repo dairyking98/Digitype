@@ -352,6 +352,17 @@ def _sample(project, cell, page, settings):
         mask[trim] = 0
     if not mask.any():
         return None
+    # keep the scan's grey edge instead of a hard black/white cut: how dark
+    # each pixel is pins the true edge down to a fraction of a pixel, so even
+    # a single sample traces smooth. 0 = paper, 1 = full ink, only on and
+    # around the pieces kept above.
+    if settings.get("soft_edges", True):
+        paper = float(np.percentile(crop, 90))
+        inkv = float(np.percentile(crop[mask > 0], 10)) if (mask > 0).any() else float(crop.min())
+        if paper - inkv > 10:
+            soft = np.clip((paper - crop) / (paper - inkv), 0, 1)
+            near = ndimage.binary_dilation(mask > 0, iterations=2)
+            mask = (soft * near).astype(np.float32)
     br, bc = cell["baseline"] - max(0, y0), cx - x0c
     t = float(cell.get("tilt") or 0.0)
     if settings.get("tilt_correction", True) and abs(t) > 0.002:
@@ -514,7 +525,15 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     if odd:
         log(f"    {len(odd)} sample{'s' if len(odd) > 1 else ''} of {ch!r} left out - unlike the others "
             f"(box {', '.join(str(o['box']) for o in odd)}): check the label")
-    hi = np.clip(ndimage.zoom(prob, up, order=1), 0, 1)
+    # smoothing that fades as samples are added: averaging n samples
+    # smooths an edge on its own, so few samples get a little more blur -
+    # 'smooth' scales it (0 = off); measured in px at the common scale
+    sm = float(st.get("smooth", 1.0))
+    if sm > 0:
+        sigma = sm * 0.012 * p / np.sqrt(max(1, n))
+        if sigma > 0.2:
+            prob = ndimage.gaussian_filter(prob, sigma)
+    hi = np.clip(ndimage.zoom(prob, up, order=3), 0, 1)
     k = adv / (p * up)                                   # font units per upsampled pixel
     avg_shape = _trace(hi)
     avg_u = _to_units(avg_shape, k, cx * up, base * up, adv).simplify(1.0) if avg_shape is not None else None
@@ -548,7 +567,13 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     dx = 0.0
     ref = avg_u if avg_u is not None and not avg_u.is_empty else grown_u
     if st.get("placement") == "center" and ref is not None and not ref.is_empty:
-        b0 = ref.bounds
+        # centre on the letter's own ink: pieces under 3% of it (a speck, a
+        # stray dot) don't get a say
+        parts = list(getattr(ref, "geoms", [ref]))
+        total = sum(q.area for q in parts) or 1.0
+        main = [q for q in parts if q.area >= 0.03 * total] or parts
+        bs = [q.bounds for q in main]
+        b0 = (min(b[0] for b in bs), 0, max(b[2] for b in bs), 0)
         dx = adv / 2 - (b0[0] + b0[2]) / 2
         from shapely.affinity import translate
         avg_u = translate(avg_u, dx) if avg_u is not None else None

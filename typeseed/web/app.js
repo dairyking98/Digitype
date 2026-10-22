@@ -41,6 +41,7 @@ function showSettings(est) {
   $("set-weight").value = s.weight; $("set-add").value = s.add;
   $("set-el").value = s.expand_left; $("set-er").value = s.expand_right;
   $("set-place").value = s.placement || "typed";
+  $("set-soft").checked = s.soft_edges !== false; $("set-smooth").value = s.smooth ?? 1;
   $("set-bmode").value = s.baseline_mode || "adaptive"; $("set-tilt").checked = s.tilt_correction !== false;
   const pe = $("pitch-est");
   pe.innerHTML = "";
@@ -61,12 +62,13 @@ function showSettings(est) {
   }
 }
 $("set-bmode").addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { baseline_mode: e.target.value } }); afterChange(); });
+$("set-soft").addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { soft_edges: e.target.checked } }); });
 $("set-place").addEventListener("change", async (e) => {
   S.settings = await api("/api/settings", { method: "POST", body: { placement: e.target.value } });
   $("log").textContent = "Placement changed - press Regenerate to apply it to the fonts.";
 });
 $("set-tilt").addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { tilt_correction: e.target.checked } }); });
-for (const [id, key] of [["set-el", "expand_left"], ["set-er", "expand_right"], ["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
+for (const [id, key] of [["set-smooth", "smooth"], ["set-el", "expand_left"], ["set-er", "expand_right"], ["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
   $(id).addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { [key]: e.target.value } }); });
 }
 
