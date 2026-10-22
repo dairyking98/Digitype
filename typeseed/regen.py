@@ -306,7 +306,12 @@ def _sample(project, cell, page, settings):
     er = max(0.0, float(settings.get("expand_right", 0.5)))
     cx = cell["x"] + w / 2
     x0, x1 = int(cell["x"] - el * w), int(np.ceil(cell["x"] + w + er * w))
-    y0, y1 = int(cell["y"]), int(cell["y"] + cell["h"])
+    # vertically: at least from two cells above the baseline to most of a
+    # cell below, whatever the box - a snug box round a line of capitals
+    # would otherwise cut the dots off Ä and Ü
+    u0 = float(cell.get("unit") or w)
+    y0 = int(min(cell["y"], cell["baseline"] - 2.0 * u0))
+    y1 = int(max(cell["y"] + cell["h"], cell["baseline"] + 0.9 * u0))
     x0c = max(0, x0)
     crop = np.asarray(g[max(0, y0):y1, x0c:x1]).astype(np.float32)
     if crop.size == 0:
@@ -338,8 +343,10 @@ def _sample(project, cell, page, settings):
             reaches_band = top <= br0 + 0.05 * u and bot >= br0 - 0.6 * u
             if inside and reaches_band:
                 keep.add(k)
-            elif inside and br0 - 1.5 * u <= cr <= br0 + 0.7 * u:
-                floating.add(k)
+            elif (inside and br0 - 1.8 * u <= cr <= br0 + 0.75 * u
+                  and sl[0].stop - sl[0].start <= 0.6 * u and sl[1].stop - sl[1].start <= 0.7 * u
+                  and sl[0].start > 0 and sl[0].stop < ink.shape[0]):
+                floating.add(k)                # small and whole: a dot or an accent, not part of another line
             elif sl[1].stop - sl[1].start > 1.6 * u and reaches_band and sl[1].start < cell_b and sl[1].stop > cell_a:
                 keep.add(k)                    # letters run together into one piece: trimmed to the cell below
     keep |= floating                           # with no body at all (' " ` ^), the floating marks are the glyph
