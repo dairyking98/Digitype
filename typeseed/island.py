@@ -155,11 +155,16 @@ def _classify(isl):
         nd.kind = "end" if d <= 1 else "junction" if d >= 3 else "pass"
 
 
-def prune(isl, ratio=1.8, min_px=3.0, rounds=6):
-    """Drop corner ridges and stray specks' trails: a branch with a free end
-    whose length is under `ratio` x the depth where it leaves its junction
-    (a corner ridge runs about 1.4 x that depth into a right-angle corner).
-    Repeats, since removing spurs can expose new ones; then joins branches
+def prune(isl, ratio=2.5, corner_frac=0.35, min_px=3.0, rounds=8):
+    """Drop corner ridges: a branch with a free end that is short (under
+    `ratio` x the depth where it leaves its junction - a corner ridge runs
+    about 1.4 x that depth into a right-angle corner, further into an acute
+    one) AND runs out at the shore (its depth at the free end under
+    `corner_frac` x the junction's). A serif or a short arm keeps its
+    thickness right to its end, so it stays. Shortest first, repeated -
+    removing a serif's own corner ridges is what frees its end. Separate
+    pieces (the dot of an i, a full stop) are never dropped here: specks
+    are removed from the ink before the island sinks. Then joins branches
     through nodes left with exactly two."""
     _merge_passes(isl)
     for _ in range(rounds):
@@ -171,21 +176,35 @@ def prune(isl, ratio=1.8, min_px=3.0, rounds=6):
                     drop.append(i)
                 continue
             da, db = isl.degree(br.a), isl.degree(br.b)
-            if da == 1 and db == 1:          # a lone segment: a speck's trail if it's tiny
-                if br.length < max(min_px, 2 * br.depth.max()):
-                    drop.append(i)
+            if da == 1 and db == 1:          # a lone segment: its own piece of ink - keep
                 continue
             if da == 1 or db == 1:
                 attach = br.b if da == 1 else br.a
-                if br.length < max(min_px, ratio * isl.nodes[attach].depth):
-                    drop.append(i)
+                end_depth = br.depth[0] if da == 1 else br.depth[-1]
+                att = isl.nodes[attach].depth
+                if br.length < max(min_px, ratio * att) and end_depth < max(1.5, corner_frac * att):
+                    drop.append((br.length, i))
         if not drop:
             break
-        isl.branches = [br for i, br in enumerate(isl.branches) if i not in set(drop)]
+        # shortest first, and never two spurs off the same junction in one
+        # round - the second may stop being a spur once the first is gone
+        drop.sort()
+        gone, touched = set(), set()
+        for _, i in drop:
+            br = isl.branches[i]
+            if br.a in touched or br.b in touched:
+                continue
+            gone.add(i)
+            touched |= {br.a, br.b}
+        isl.branches = [br for i, br in enumerate(isl.branches) if i not in gone]
         _merge_passes(isl)
     used = {br.a for br in isl.branches} | {br.b for br in isl.branches}
-    isl.nodes = {k: v for k, v in isl.nodes.items() if k in used}
+    # a round dot's trail can shrink to a single point: keep it as a dot
+    isl.nodes = {k: v for k, v in isl.nodes.items() if k in used or isl.degree(k) == 0}
     _classify(isl)
+    for k, v in isl.nodes.items():
+        if k not in used:
+            v.kind = "dot"
     return isl
 
 

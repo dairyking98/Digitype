@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type Seed</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <b class="brand">Type Seed</b>
+  <span id="root" class="muted"></span>
+  <span class="spacer"></span>
+  <button id="tab-label" class="tab on">Label</button>
+  <button id="tab-result" class="tab">Results</button>
+  <button id="regen" class="primary">Regenerate</button>
+</header>
+<div class="main">
+  <aside class="left">
+    <h3>Pages</h3>
+    <div id="pages"></div>
+    <details class="add">
+      <summary>Add samples…</summary>
+      <p class="muted">A file or folder path on this computer (images, multi-page TIFF, PDF).</p>
+      <input id="add-path" placeholder="E:\Leonard\Typewriter\Typefaces\Type Samples\Peli">
+      <button id="add-btn">Add</button>
+    </details>
+  </aside>
+
+  <section id="view-label" class="center">
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <input id="glyph-input" class="glyph-input" maxlength="200" autocomplete="off" spellcheck="false" hidden>
+    </div>
+    <div class="hint" id="hint">Drag a box around a glyph and type it. Type a whole run of characters to split a line
+      into fixed-pitch cells. Wheel = zoom · right-drag or Space+drag = pan · click a box to select ·
+      Delete removes · Enter relabels · arrows nudge (Shift ×10) · drag the red line to set the baseline.</div>
+  </section>
+
+  <section id="view-result" class="center result" hidden>
+    <div id="result-head"></div>
+    <div id="result-grid"></div>
+  </section>
+
+  <aside class="right">
+    <div id="sel" class="panel" hidden>
+      <h3>Selected box</h3>
+      <label>Glyph(s) <input id="sel-text" autocomplete="off" spellcheck="false"></label>
+      <div class="row"><span id="sel-info" class="muted"></span></div>
+      <div class="row">
+        <button id="sel-base-clear" title="Go back to the automatic baseline">Auto baseline</button>
+        <button id="sel-del" class="danger">Delete</button>
+      </div>
+      <div id="sel-crop"></div>
+    </div>
+    <div class="panel">
+      <h3>Glyphs <span id="glyph-count" class="muted"></span></h3>
+      <div id="glyphs"></div>
+    </div>
+    <div class="panel">
+      <h3>Settings</h3>
+      <label title="Character pitch of the typewriter: 2.54 mm = 10 per inch (pica), 2.12 mm = 12 per inch (elite)">Pitch (mm)
+        <input id="set-pitch" type="number" step="0.01"></label>
+      <div id="pitch-est" class="muted small"></div>
+      <label title="Font name for the exported .ttf files">Font name <input id="set-name"></label>
+      <label title="How much the averaged sample is enlarged before the seed is taken - smoother curves, slower">Detail ×
+        <input id="set-up" type="number" step="1" min="1" max="8"></label>
+      <label title="Scales every stroke's half-width when growing back (1 = as measured)">Weight ×
+        <input id="set-weight" type="number" step="0.01"></label>
+      <label title="Adds to every stroke's half-width (font units; + bolder, - lighter) - e.g. to take ink spread out">Add (units)
+        <input id="set-add" type="number" step="1"></label>
+    </div>
+    <div class="panel">
+      <h3>Log</h3>
+      <pre id="log"></pre>
+    </div>
+  </aside>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

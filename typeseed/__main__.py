@@ -33,7 +33,15 @@ def main():
     d.add_argument("--prune-ratio", type=float, default=1.8)
     d.add_argument("--seed", type=int, default=1, help="random seed for the dirt")
     d.add_argument("--out", default="out")
+    lb = sub.add_parser("label", help="the labelling tool: box glyphs on scans, then regenerate a font")
+    lb.add_argument("sources", nargs="*", help="sample files or folders (images, multi-page TIFF, PDF)")
+    lb.add_argument("--project", default=None, help="project folder (default: projects/<first source's name>)")
+    lb.add_argument("--port", type=int, default=8770)
+    lb.add_argument("--host", default="127.0.0.1")
+    lb.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
+    if a.cmd == "label":
+        return label(a)
 
     font = Font(a.font)
     os.makedirs(a.out, exist_ok=True)
@@ -64,6 +72,27 @@ def main():
         png = os.path.join(a.out, f"report_{ord(ch):04x}.png")
         report.draw(png, ch, shape, grid, results)
         print(f"  -> {png}")
+
+
+def label(a):
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from .project import Project
+    from .server import make_app
+    root = a.project
+    if root is None:
+        name = os.path.basename(os.path.normpath(a.sources[0])) if a.sources else "untitled"
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects", name)
+    proj = Project(root, a.sources)
+    url = f"http://{a.host}:{a.port}/"
+    print(f"Type Seed: project {proj.root} - {len(proj.meta['pages'])} pages, {len(proj.box_list())} boxes")
+    print(f"open {url}")
+    if not a.no_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    uvicorn.run(make_app(proj), host=a.host, port=a.port, log_level="warning")
 
 
 if __name__ == "__main__":

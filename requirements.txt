@@ -6,3 +6,6 @@ fonttools
 networkx
 pillow
 matplotlib
+fastapi
+uvicorn
+pymupdf

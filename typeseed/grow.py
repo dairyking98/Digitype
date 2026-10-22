@@ -30,7 +30,7 @@ def grow(seed, weight=1.0, add=0.0, junctions=True):
             parts.append(_capsule(tuple(pts[i]), r[i], tuple(pts[i + 1]), r[i + 1]))
     if junctions:
         for nd in seed.nodes.values():
-            if nd.kind == "junction":
+            if nd.kind in ("junction", "dot"):
                 parts.append(Point(nd.xy).buffer(max(nd.r * weight + add, 0.1), 12))
     return unary_union(parts) if parts else None
 

@@ -32,11 +32,29 @@ modified (lighter/bolder, more or less contrast, monoline), and exported as a fo
 | seed: smoothed + simplified centerlines, linearized half-widths, nodes | `seed.py` | done (polylines; Bézier fit next) |
 | grow back (discs + tapered capsules, junction fill) | `grow.py` | done |
 | report PNG per letter | `report.py` | done |
-| average several impressions of the same letter | | next |
-| real scans: threshold, split into letters, pitch grid | | next |
+| average several impressions of the same letter | `regen.average` | done |
+| real scans: labelling tool, cells, baselines, averaging, .ttf export | `project.py` `regen.py` `server.py` `web/` | done |
 | standardize across the alphabet | | planned |
 | terminal / serif styles (flat ends come back round today) | | planned |
-| export a .ttf (fontTools) | | planned |
+| export a .ttf (fontTools) | `regen.write_font` | done |
+
+## Labelling tool (real scans)
+
+```
+run.bat "E:\Leonard\Typewriter\Typefaces\Type Samples\Peli"      (Windows; first run sets up .venv)
+.venv/bin/python3 -m typeseed label path/to/samples [--project DIR]  (anywhere)
+```
+
+Opens a local page (http://127.0.0.1:8770). Every image, multi-page TIFF frame and PDF page
+is a page. Drag a box round a glyph and type it; type a whole run (spaces included) to split a
+line into fixed-pitch cells at the project's pitch. The page warns when the text can't match
+the ink (a missing or extra space). Baselines are automatic (letters that sit on the line give
+it; g j p , ( ... borrow it from their line); drag the red line to set one by hand.
+
+**Regenerate** averages every sample of each character (lined up on cell and baseline,
+registered sub-pixel), then writes two fixed-pitch fonts to `projects/<name>/out/`:
+`-Average.ttf` (the averaged ink, traced) and `-Seed.ttf` (sunk to a seed and regrown).
+Results shows each glyph's average, trace and seed. Projects live in `projects/` (not in git).
 
 ## Try it
 
