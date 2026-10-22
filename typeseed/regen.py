@@ -153,11 +153,12 @@ def box_cells(project, box):
     return out
 
 
-def all_cells(project):
+def all_cells(project, with_pages=False):
     """Cells of every box; a cell still without a baseline borrows the
     median baseline of boxes on its page that overlap it vertically."""
-    per_box = {b["id"]: box_cells(project, b) for b in project.box_list()}
-    boxes = {b["id"]: b for b in project.box_list()}
+    snapshot = project.box_list()
+    per_box = {b["id"]: box_cells(project, b) for b in snapshot}
+    boxes = {b["id"]: b for b in snapshot}
     for bid, cells in per_box.items():
         b = boxes[bid]
         for c in cells:
@@ -173,6 +174,8 @@ def all_cells(project):
                     near += [x["baseline"] for x in oc if x["baseline"] is not None and not x.get("borrowed")]
             c["baseline"] = float(np.median(near)) if near else None
             c["borrowed"] = True
+    if with_pages:
+        return per_box, {bid: b["page"] for bid, b in boxes.items()}
     return per_box
 
 
@@ -267,10 +270,10 @@ def _to_units(geom, k, cx, base, advance):
 
 def regenerate(project, chars=None, log=print):
     st = project.meta["settings"]
-    per_box = all_cells(project)
+    per_box, pages = all_cells(project, with_pages=True)
     by_char = {}
     for bid, cells in per_box.items():
-        page = project.page(next(b for b in project.box_list() if b["id"] == bid)["page"])
+        page = project.page(pages[bid])
         for c in cells:
             by_char.setdefault(c["char"], []).append((c, page))
     out_dir = os.path.join(project.root, "out")

@@ -123,7 +123,10 @@ class Project:
 
     # ------------------------------------------------------------ boxes
     def box_list(self):
-        return self.labels["boxes"]
+        """A snapshot: boxes can be added or deleted by another request
+        while this one is still reading."""
+        with self._lock:
+            return [dict(b) for b in self.labels["boxes"]]
 
     def upsert_box(self, box):
         with self._lock:

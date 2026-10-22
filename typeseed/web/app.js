@@ -330,8 +330,10 @@ async function saveBox(box) {
 async function afterChange() {
   draw(); showSel(); renderGlyphs(); renderPages();
   // a new baseline can lend itself to neighbours on the page: refresh them all
-  S.boxes = await api("/api/boxes");
-  draw(); renderGlyphs();
+  try {
+    S.boxes = await api("/api/boxes");
+  } catch (e) { $("log").textContent = `Couldn't refresh the boxes (${e.message}) - your change is saved; reload if anything looks off.`; }
+  draw(); renderGlyphs(); showSel();
 }
 
 // ------------------------------------------------------------------ keyboard

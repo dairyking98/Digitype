@@ -20,8 +20,9 @@ def make_app(project: Project):
     job = {"running": False, "log": [], "result": None, "error": None}
 
     def boxes_with_cells():
+        snapshot = project.box_list()
         per = regen.all_cells(project)
-        return [{**b, "cells": per.get(b["id"], [])} for b in project.box_list()]
+        return [{**b, "cells": per.get(b["id"], [])} for b in snapshot]
 
     @app.get("/api/project")
     def get_project():
