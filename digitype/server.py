@@ -20,6 +20,15 @@ def make_app(project: Project):
     app = FastAPI(title="Digitype")
     job = {"running": False, "log": [], "result": None, "error": None}
 
+    def warm():
+        # work out every box's cells once in the background at start, so the
+        # first page load (and the first save) doesn't wait for all of them
+        try:
+            regen.all_cells(project)
+        except Exception:
+            pass
+    threading.Thread(target=warm, daemon=True).start()
+
     def boxes_with_cells():
         snapshot = project.box_list()
         per = regen.all_cells(project)
