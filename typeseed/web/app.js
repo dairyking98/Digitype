@@ -496,12 +496,22 @@ function showSel() {
   $("sel-info").textContent = `${cells.length} cell${cells.length === 1 ? "" : "s"} · baseline ${manual ? "set by hand" : borrowed ? "borrowed from the line" : "automatic"}`
     + (noBase ? ` · ${noBase} without a baseline - drag the red line or label a letter beside it` : "")
     + (cells.find((c) => c.warn) ? `\n⚠ ${cells.find((c) => c.warn).warn}` : "");
+  $("sel-set").innerHTML = S.sets.map((st) => `<option value="${st.id}"${st.id === (b.set ?? 1) ? " selected" : ""}></option>`).join("");
+  [...$("sel-set").options].forEach((o, i) => { o.textContent = S.sets[i].name; });
   const out = 240;
   $("sel-crop").innerHTML = `<img alt="" src="/api/page/${b.page}/region?x=${b.x - b.h * 0.2}&y=${b.y - b.h * 0.2}&w=${b.w + b.h * 0.4}&h=${b.h * 1.4}&out=${out}">`;
 }
 $("sel-text").addEventListener("change", async (e) => {
   const b = S.boxes.find((x) => x.id === S.sel);
   if (b) { b.text = e.target.value; await saveBox(b); }
+});
+$("sel-set").addEventListener("change", async (e) => {
+  const b = S.boxes.find((x) => x.id === S.sel);
+  if (!b) return;
+  const to = Number(e.target.value), name = S.sets.find((s) => s.id === to)?.name;
+  b.set = to;
+  await saveBox(b);
+  $("log").textContent = `Box ${b.id} moved to the font "${name}".`;
 });
 $("sel-del").onclick = () => { const b = S.boxes.find((x) => x.id === S.sel); if (b) delBox(b); };
 $("sel-base-clear").onclick = async () => {

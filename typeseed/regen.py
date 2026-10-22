@@ -148,10 +148,39 @@ def _box_cells(project, box):
                 i = bad[0]
                 warn = (f"{len(bad)} cells don't match the text (spaces over ink, or letters over blank paper), "
                         f"starting near \"{text[max(0, i - 6):i + 6]}\" - a missing or extra character before there?")
+    # a cell that clearly missed its glyph (a chart whose glyphs are grouped,
+    # not evenly spaced) snaps onto the nearest glyph; small offsets stay -
+    # they are the face's own placement in its cell
+    blobs, core_ink, core_full = [], {}, 0.0
+    if n > 1:
+        colink = ink.sum(axis=0).astype(float)
+        colany = colink > 0
+        cw0 = cells[0][2]
+        gap = max(1, int(0.08 * cw0))
+        run = None
+        for i, v in enumerate(np.concatenate([colany, [False] * (gap + 1)])):
+            if v:
+                run = [i, i] if run is None else [run[0], i]
+            elif run is not None and i - run[1] > gap:
+                if run[1] - run[0] + 1 <= 1.3 * cw0:          # one glyph, not letters run together
+                    blobs.append((run[0] + run[1] + 1) / 2)
+                run = None
+        for c, cx, cw in cells:                                # ink in the middle 40% of each cell
+            a, b = int(max(0, cx + 0.3 * cw)), int(min(w, cx + 0.7 * cw))
+            core_ink[cx] = colink[a:b].sum() if b > a else 0.0
+        letters_core = [core_ink[cx] for c, cx, cw in cells if not c.isspace()]
+        core_full = float(np.median(letters_core)) if letters_core else 0.0
     out = []
     for c, cx, cw in cells:
         if c.isspace():
             continue
+        snapped = False
+        if blobs and core_ink.get(cx, 0) < 0.35 * core_full and c not in ".,'`´·:;-_":   # the cell missed its glyph
+            cc = cx + cw / 2
+            near = min(blobs, key=lambda bc: abs(bc - cc))
+            if 0.25 * cw < abs(near - cc) < 0.75 * cw:
+                cx += near - cc
+                snapped = True
         a, b = int(max(0, cx)), int(min(w, cx + cw))
         sub = ink[:, a:b]
         rows = np.nonzero(sub.any(axis=1))[0]
@@ -159,7 +188,8 @@ def _box_cells(project, box):
         if len(rows) and c in ON_BASELINE:
             base = y + rows.max() + 1.0
         out.append({"char": c, "box": box.get("id"), "x": x + cx, "y": y, "w": cw, "h": h, "baseline": base,
-                    "has_ink": bool(len(rows)), "thr": thr, "warn": warn})
+                    "has_ink": bool(len(rows)), "thr": thr, "warn": warn, "snapped": snapped,
+                    "unit": float(cw) if n > 1 else None})     # px per cell: the scale this sample was typed at
     mode = project.settings(box.get("set", 1)).get("baseline_mode", "adaptive")
     pts = [(c["x"] + c["w"] / 2, c["baseline"]) for c in out if c["baseline"] is not None]
     for c in out:
@@ -226,6 +256,19 @@ def all_cells(project, with_pages=False, sid=None):
                 mode = project.settings(b.get("set", 1)).get("baseline_mode", "adaptive")
                 c["baseline"], c["tilt"] = baseline_at(near, c["x"] + c["w"] / 2, 8 * c["w"] if mode == "adaptive" else None)
             c["borrowed"] = True
+    # a single-glyph box doesn't show the pitch: take it from runs on the
+    # same page, else from the pitch setting at the page's dpi
+    run_units = {}
+    for bid, cells in per_box.items():
+        for c in cells:
+            if c.get("unit"):
+                run_units.setdefault(boxes[bid]["page"], []).append(c["unit"])
+    for bid, cells in per_box.items():
+        b = boxes[bid]
+        for c in cells:
+            if not c.get("unit"):
+                us = run_units.get(b["page"])
+                c["unit"] = float(np.median(us)) if us else pitch_px(project, project.page(b["page"]), project.settings(b.get("set", 1)))
     if with_pages:
         return per_box, {bid: b["page"] for bid, b in boxes.items()}
     return per_box
@@ -270,19 +313,43 @@ def _sample(project, cell, page, settings):
         return None
     ink = _ink(crop, cell["thr"])
     # keep only ink that belongs to this cell: pieces reaching its core
+    # which pieces of ink belong to this cell: a piece whose centre falls in
+    # the cell and that reaches the band just above its baseline (the body
+    # of the letter), plus separate pieces whose centre sits in the cell a
+    # little above or below it (the dot of an i, umlauts, the circles of %,
+    # the top of = and :). The line above or below, and the next letter,
+    # have their centres elsewhere.
     lab, n = ndimage.label(ink, structure=np.ones((3, 3)))
-    core_a = int(cell["x"] - x0c + 0.15 * w)
-    core_b = int(cell["x"] - x0c + 0.85 * w)
-    cols = slice(max(0, core_a), max(core_a + 1, core_b))
-    # ...and reach the band just above this cell's own baseline, so a tall
-    # box can't pull in the line above or below. Marks that float above
-    # the line (' " ` ^ *) touch no band - for them, the columns alone.
-    br0 = int(round(cell["baseline"] - max(0, y0)))
-    band = slice(max(0, br0 - int(0.6 * w)), max(1, br0 + int(0.05 * w)))
-    keep = set(np.unique(lab[band, cols])) - {0}
-    if not keep:
-        keep = set(np.unique(lab[:, cols])) - {0}
+    u = float(cell.get("unit") or w)
+    br0 = cell["baseline"] - max(0, y0)
+    cell_a, cell_b = cell["x"] - x0c, cell["x"] - x0c + w
+    keep, floating = set(), set()
+    if n:
+        idx = np.arange(1, n + 1)
+        cents = ndimage.center_of_mass(ink, lab, idx)
+        sizes = ndimage.sum(ink, lab, idx)
+        objs = ndimage.find_objects(lab)
+        min_size = max(2.0, (0.03 * u) ** 2)
+        for k, ((cr, ccol), size, sl) in enumerate(zip(cents, sizes, objs), start=1):
+            if size < min_size:
+                continue
+            inside = cell_a - 0.1 * u <= ccol <= cell_b + 0.1 * u
+            top, bot = sl[0].start, sl[0].stop
+            reaches_band = top <= br0 + 0.05 * u and bot >= br0 - 0.6 * u
+            if inside and reaches_band:
+                keep.add(k)
+            elif inside and br0 - 1.5 * u <= cr <= br0 + 0.7 * u:
+                floating.add(k)
+            elif sl[1].stop - sl[1].start > 1.6 * u and reaches_band and sl[1].start < cell_b and sl[1].stop > cell_a:
+                keep.add(k)                    # letters run together into one piece: trimmed to the cell below
+    keep |= floating                           # with no body at all (' " ` ^), the floating marks are the glyph
+    wide = {k for k in keep if objs[k - 1][1].stop - objs[k - 1][1].start > 1.25 * u}
     mask = np.isin(lab, list(keep)).astype(np.float32)
+    if wide:                                   # a piece wider than a letter is two letters touching:
+        lo, hi = int(max(0, cell_a - 0.15 * u)), int(cell_b + 0.15 * u)   # keep only this cell's part
+        trim = np.isin(lab, list(wide))
+        trim[:, lo:hi] = False
+        mask[trim] = 0
     if not mask.any():
         return None
     br, bc = cell["baseline"] - max(0, y0), cx - x0c
@@ -293,7 +360,7 @@ def _sample(project, cell, page, settings):
         m = np.array([[cs, sn], [-sn, cs]])
         ctr = np.array([br, bc])
         mask = ndimage.affine_transform(mask, m, offset=ctr - m @ ctr, order=1)
-    return mask, br, bc, {"box": cell.get("box"), "w": w}
+    return mask, br, bc, {"box": cell.get("box"), "w": w, "unit": float(cell.get("unit") or w)}
 
 
 def average(samples, pitch, max_shift_frac=0.12):
@@ -302,6 +369,20 @@ def average(samples, pitch, max_shift_frac=0.12):
     shape: with 3 or more samples, one that clearly disagrees (most often a
     label mistake - an a that is really an a-umlaut, a letter one cell off)
     is left out. -> (prob map, base_row, cx, n used, [odd sample info])"""
+    # scans of one face at different sizes: bring every sample to the same
+    # px per cell (the largest, capped) before anything is compared
+    units = [s[3]["unit"] for s in samples if len(s) > 3 and s[3].get("unit")]
+    target = min(max(units), 240.0) if units else float(pitch)
+    scaled = []
+    for s in samples:
+        f = target / s[3]["unit"] if len(s) > 3 and s[3].get("unit") else 1.0
+        if abs(f - 1) > 0.01:
+            m = np.clip(ndimage.zoom(s[0], f, order=1), 0, 1)
+            scaled.append((m, s[1] * f, s[2] * f, {**s[3], "w": s[3]["w"] * f, "orig_unit": s[3]["unit"]}))
+        else:
+            scaled.append((s[0], s[1], s[2], {**(s[3] if len(s) > 3 else {}), "orig_unit": target}))
+    samples = scaled
+    pitch = target
     above = max(s[1] for s in samples)
     below = max(s[0].shape[0] - s[1] for s in samples)
     left = max(s[2] for s in samples)                    # room for the widest sample on each side
@@ -320,6 +401,10 @@ def average(samples, pitch, max_shift_frac=0.12):
         canvas = ndimage.shift(canvas, (dy - iy, dx - ix), order=1)
         stack.append(canvas)
     stack = np.array(stack)
+    # a sharp scan counts for more than a small one: weight = its own px per
+    # cell over the largest (thin strokes of a low-resolution scan threshold
+    # away and would outvote the good ones)
+    wts = np.array([(s[3].get("orig_unit", target) / target) if len(s) > 3 else 1.0 for s in samples])
     odd = []
     if len(stack) >= 2:                      # register: overlap the samples as well as they go
         ref = np.median(stack, axis=0)
@@ -328,12 +413,12 @@ def average(samples, pitch, max_shift_frac=0.12):
         # little (the baseline is measured)
         cellw = float(np.median([s[3]["w"] for s in samples if len(s) > 3] or [pitch]))
         for _ in range(2):
-            ref = np.median(stack, axis=0)
+            ref = _wmean(stack, wts) if len(stack) < 3 else np.median(stack, axis=0)
             for i in range(len(stack)):
                 (dy, dx), _, _ = phase_cross_correlation(ref, stack[i], upsample_factor=8, normalization=None)
                 if abs(dx) <= 0.5 * cellw and abs(dy) <= max_shift_frac * cellw:
                     stack[i] = ndimage.shift(stack[i], (dy, dx), order=1)
-        major = np.median(stack, axis=0) >= 0.5
+        major = _wmean(stack, wts) >= 0.5
         ious = []
         for i in range(len(stack)):
             m = stack[i] >= 0.5
@@ -348,8 +433,12 @@ def average(samples, pitch, max_shift_frac=0.12):
                 if v < cut:
                     info = samples[i][3] if len(samples[i]) > 3 else {}
                     odd.append({"box": info.get("box"), "match": round(v, 3), "typical": round(med, 3)})
-            stack = stack[keep]
-    return stack.mean(axis=0), base, cx, len(stack), odd
+            stack, wts = stack[keep], wts[keep]
+    return _wmean(stack, wts), base, cx, len(stack), odd, target
+
+
+def _wmean(stack, wts):
+    return np.tensordot(wts / wts.sum(), stack, axes=1)
 
 
 # ------------------------------------------------------------------ geometry
@@ -416,7 +505,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     -> (result for the page, regrown shape, traced shape), font units. If
     only the seed step fails, the traced average still goes in the font."""
     adv, upem, up = st["advance"], st["upem"], int(st["upsample"])
-    prob, base, cx, n, odd = average(samples, p)
+    prob, base, cx, n, odd, p = average(samples, p)      # p: the common px per cell
     if odd:
         log(f"    {len(odd)} sample{'s' if len(odd) > 1 else ''} of {ch!r} left out - unlike the others "
             f"(box {', '.join(str(o['box']) for o in odd)}): check the label")
