@@ -214,7 +214,9 @@ cv.addEventListener("mousedown", (e) => {
   }
   const tol = 7 / S.zoom;
   const sel = S.boxes.find((b) => b.id === S.sel);
-  if (sel && sel.page === S.page.id) {
+  // a drawn box is locked: moving, resizing and the baseline need Shift held,
+  // so selecting (or a click that wobbles) never changes the input data
+  if (sel && sel.page === S.page.id && e.shiftKey) {
     const ci = corners(sel).findIndex(([hx, hy]) => Math.abs(px - hx) < tol && Math.abs(py - hy) < tol);
     if (ci >= 0) { S.drag = { kind: "resize", ci, box: sel, orig: { ...sel } }; return; }
     const cell = (sel.cells || []).find((c) => c.baseline != null && px >= c.x && px <= c.x + c.w && Math.abs(py - c.baseline) < tol);
@@ -223,7 +225,7 @@ cv.addEventListener("mousedown", (e) => {
   const hit = [...pageBoxes()].reverse().find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
   if (hit) {
     S.sel = hit.id; showSel();
-    S.drag = { kind: "move", box: hit, ox: px - hit.x, oy: py - hit.y, moved: false };
+    if (e.shiftKey) S.drag = { kind: "move", box: hit, ox: px - hit.x, oy: py - hit.y, moved: false, sx: e.clientX, sy: e.clientY };
     draw();
     return;
   }
@@ -237,7 +239,10 @@ window.addEventListener("mousemove", (e) => {
   const d = S.drag;
   if (d.kind === "pan") { S.panX = d.px + e.clientX - d.sx; S.panY = d.py + e.clientY - d.sy; viewChanged(); return; }
   if (d.kind === "new") { S.draft.w = px - S.draft.x; S.draft.h = py - S.draft.y; draw(); return; }
-  if (d.kind === "move") { d.box.x = px - d.ox; d.box.y = py - d.oy; d.moved = true; d.box.cells = []; draw(); return; }
+  if (d.kind === "move") {
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return;   // a click, not a drag
+    d.box.x = px - d.ox; d.box.y = py - d.oy; d.moved = true; d.box.cells = []; draw(); return;
+  }
   if (d.kind === "resize") {
     const o = d.orig, b = d.box;
     const left = d.ci % 2 === 0, top = d.ci < 2;
