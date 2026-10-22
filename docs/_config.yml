@@ -1,0 +1,11 @@
+title: Digitype
+description: Digitize typefaces - turn scans of typewriter type samples into clean, installable fonts.
+theme: jekyll-theme-primer
+plugins:
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-titles-from-headings
+relative_links:
+  enabled: true
+exclude:
+  - assets/*.psd

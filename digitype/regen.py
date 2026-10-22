@@ -620,7 +620,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
 
 def _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log):
     st = fs["settings"]
-    name = st.get("font_name") or fs["name"] or "Type Seed"
+    name = st.get("font_name") or fs["name"] or "Digitype"
     fonts = {}
     for label, glyphs in (("Seed", seed_glyphs), ("Average", avg_glyphs)):
         if glyphs:
@@ -642,7 +642,7 @@ def _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, l
 
 
 def _safe(s):
-    return "".join(c if c.isalnum() or c in "-_" else "_" for c in s).strip("_") or "TypeSeed"
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in s).strip("_") or "Digitype"
 
 
 def _svg(geom):
@@ -700,9 +700,9 @@ def write_font(path, family, glyphs, upem, advance):
     # name, version and an ASCII PostScript name without spaces
     import re
     import time as _time
-    ps = re.sub(r"[^A-Za-z0-9-]", "", family.replace(" ", "-"))[:58] or "TypeSeed"
+    ps = re.sub(r"[^A-Za-z0-9-]", "", family.replace(" ", "-"))[:58] or "Digitype"
     fb.setupNameTable({"familyName": family, "styleName": "Regular",
-                       "uniqueFontIdentifier": f"TypeSeed: {family}: {_time.strftime('%Y-%m-%d %H:%M')}",
+                       "uniqueFontIdentifier": f"Digitype: {family}: {_time.strftime('%Y-%m-%d %H:%M')}",
                        "fullName": f"{family} Regular", "version": "Version 1.000",
                        "psName": f"{ps}-Regular"})
     from fontTools.ttLib.tables.O_S_2f_2 import Panose

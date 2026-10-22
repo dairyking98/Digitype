@@ -80,7 +80,7 @@ def draw(path, char, shape, grid, results):
             ax.set_ylim(ext[2], ext[3])
             ax.set_xticks([])
             ax.set_yticks([])
-    fig.suptitle(f"Type Seed - {char!r}", fontsize=12)
+    fig.suptitle(f"Digitype - {char!r}", fontsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=110)
     plt.close(fig)

@@ -1,4 +1,4 @@
-"""python -m typeseed demo FONT CHARS [--dirty] [--out DIR]
+"""python -m digitype demo FONT CHARS [--dirty] [--out DIR]
 
 For each character: the clean glyph and (with --dirty) a simulated worn,
 badly scanned impression of it are each sunk, pruned to a seed and grown
@@ -23,7 +23,7 @@ def extract(ink, grid, char, advance, upem, prune_ratio):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="typeseed")
+    ap = argparse.ArgumentParser(prog="digitype")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="seed + regrow characters of a font, clean and dirtied")
     d.add_argument("font")
@@ -88,7 +88,7 @@ def label(a):
         root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "projects", name)
     proj = Project(root, a.sources)
     url = f"http://{a.host}:{a.port}/"
-    print(f"Type Seed: project {proj.root} - {len(proj.meta['pages'])} pages, {len(proj.box_list())} boxes")
+    print(f"Digitype: project {proj.root} - {len(proj.meta['pages'])} pages, {len(proj.box_list())} boxes")
     print(f"open {url}")
     if not a.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()

@@ -1,4 +1,4 @@
-// Type Seed labelling tool: pages on a zoomable canvas, boxes dragged
+// Digitype labelling tool: pages on a zoomable canvas, boxes dragged
 // around glyphs and labelled, then Regenerate turns them into a font.
 const $ = (id) => document.getElementById(id);
 const api = async (url, opts = {}) => {

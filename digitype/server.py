@@ -1,5 +1,5 @@
 """The labelling tool's local web server: pages, boxes, settings and the
-Regenerate job. Started by `python -m typeseed label`."""
+Regenerate job. Started by `python -m digitype label`."""
 import io
 import json
 import os
@@ -17,7 +17,7 @@ WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 
 def make_app(project: Project):
-    app = FastAPI(title="Type Seed")
+    app = FastAPI(title="Digitype")
     job = {"running": False, "log": [], "result": None, "error": None}
 
     def boxes_with_cells():

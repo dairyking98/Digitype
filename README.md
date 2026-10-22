@@ -1,6 +1,25 @@
-# Type Seed
+# Digitype
 
-Recreate typewriter typefaces from dirty scans of type samples as clean vectors.
+**Digitize typefaces.** Turn scans of typewriter type samples - dirty, skewed, at any resolution -
+into clean, installable monospaced fonts. Label where each character is; Digitype averages every
+impression, traces it, and rebuilds it.
+
+**Site:** https://leonardchau.com/Digitype/ · **Docs:** [User guide](docs/user-guide.md) ·
+[How it works](docs/how-it-works.md) · [Settings](docs/settings.md)
+
+![Results: test type in the two generated fonts, and glyphs averaged, traced and regrown](docs/assets/results.jpg)
+
+## Quick start
+
+```
+git clone https://github.com/dairyking98/Digitype
+cd Digitype
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python3 -m digitype label "path/to/your/scans"
+```
+
+On Windows, `run.bat "D:\Scans\Type Samples"` sets up `.venv` on first run. Then open
+http://127.0.0.1:8770, draw a box around a line of text, type what it says, and press **Regenerate**.
 
 ## The idea: a sinking island
 
@@ -42,7 +61,7 @@ modified (lighter/bolder, more or less contrast, monoline), and exported as a fo
 
 ```
 run.bat "D:\Scans\Type Samples"      (Windows; first run sets up .venv)
-.venv/bin/python3 -m typeseed label path/to/samples [--project DIR]  (anywhere)
+.venv/bin/python3 -m digitype label path/to/samples [--project DIR]  (anywhere)
 ```
 
 Opens a local page (http://127.0.0.1:8770). Every image, multi-page TIFF frame and PDF page
@@ -66,7 +85,7 @@ Results shows each glyph's average, trace and seed. Projects live in `projects/`
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python3 -m typeseed demo path/to/font.ttf kyR8 --dirty --out out
+.venv/bin/python3 -m digitype demo path/to/font.ttf kyR8 --dirty --out out
 ```
 
 Each letter gets `report_XXXX.png` (input -> sinking island -> seed -> grown back vs the

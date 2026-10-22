@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digitype - digitize typefaces</title>
+<meta name="description" content="Digitype turns scans of typewriter type samples into clean, installable monospaced fonts: label the characters, and every impression is averaged, traced and rebuilt.">
+<meta property="og:title" content="Digitype - digitize typefaces">
+<meta property="og:description" content="Turn scans of typewriter type samples into clean, installable monospaced fonts.">
+<meta property="og:image" content="assets/results.jpg">
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #16181c; --text-2: #4f5661; --text-3: #7c838e;
+    --line: #e6e3dc; --accent: #2f5fd0; --accent-ink: #ffffff; --code: #f2f0ea;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111317; --panel: #171a1f; --ink: #eceef1; --text-2: #a7aeb8; --text-3: #767e89;
+      --line: #262b32; --accent: #7ea2ff; --accent-ink: #0b1020; --code: #1d2127; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 var(--sans); }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  nav { display: flex; align-items: center; gap: 18px; padding: 18px 0; font-size: 15px; }
+  nav .logo { font: 600 18px var(--mono); color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+  nav .spacer { flex: 1; }
+  nav a:not(.logo) { color: var(--text-2); text-decoration: none; }
+  nav a:not(.logo):hover { color: var(--ink); }
+  header.hero { padding: 56px 0 36px; }
+  .hero h1 { font: 600 clamp(40px, 7vw, 76px)/1.02 var(--mono); letter-spacing: -.03em; margin: 0 0 12px; }
+  .hero h1 .dim { color: var(--text-3); }
+  .hero p.lead { font-size: clamp(18px, 2.2vw, 22px); color: var(--text-2); max-width: 680px; margin: 0 0 28px; }
+  .buttons { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 11px 20px; border-radius: 9px; text-decoration: none; font-weight: 600; font-size: 15px;
+    border: 1px solid var(--line); color: var(--ink); background: var(--panel); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  figure.shot { margin: 40px 0 0; }
+  figure.shot img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--line);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .12); }
+  figure.shot figcaption { color: var(--text-3); font-size: 14px; margin-top: 10px; text-align: center; }
+  section { padding: 64px 0 8px; }
+  h2 { font: 600 30px/1.2 var(--mono); letter-spacing: -.02em; margin: 0 0 14px; }
+  h3 { font-size: 18px; margin: 0 0 6px; }
+  .sub { color: var(--text-2); max-width: 720px; margin: 0 0 28px; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; counter-reset: s; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .step::before { counter-increment: s; content: counter(s); font: 600 13px var(--mono); color: var(--accent);
+    display: block; margin-bottom: 6px; }
+  .step p { margin: 0; color: var(--text-2); font-size: 15px; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: center; }
+  .split img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); background: #fff; }
+  .split ul { padding-left: 20px; color: var(--text-2); margin: 0; }
+  .split li { margin: 6px 0; }
+  @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .feature { border-top: 2px solid var(--ink); padding-top: 12px; }
+  .feature p { margin: 0; color: var(--text-2); font-size: 15px; }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+    font: 14px/1.6 var(--mono); }
+  code { font-family: var(--mono); font-size: .92em; }
+  .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .doc { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px;
+    text-decoration: none; color: var(--ink); }
+  .doc:hover { border-color: var(--accent); }
+  .doc p { margin: 4px 0 0; color: var(--text-2); font-size: 15px; }
+  footer { padding: 64px 0 40px; color: var(--text-3); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="logo" href="./">Digitype</a>
+    <span class="spacer"></span>
+    <a href="#how">How it works</a>
+    <a href="#start">Get started</a>
+    <a href="user-guide.html">Docs</a>
+    <a href="https://github.com/dairyking98/Digitype">GitHub</a>
+  </nav>
+
+  <header class="hero">
+    <h1>Digitype<span class="dim">:</span><br>digitize typefaces</h1>
+    <p class="lead">Turn scans of typewriter type samples - dirty, skewed, at any resolution - into clean,
+      installable monospaced fonts. Show it where each character is; it averages every impression,
+      traces it, and rebuilds it.</p>
+    <div class="buttons">
+      <a class="btn primary" href="#start">Get started</a>
+      <a class="btn" href="user-guide.html">Read the guide</a>
+      <a class="btn" href="https://github.com/dairyking98/Digitype">View on GitHub</a>
+    </div>
+    <figure class="shot">
+      <img src="assets/results.jpg" alt="Digitype's Results page: test type set in the two generated fonts above a grid of glyphs, each shown averaged, traced and regrown" width="1512" height="785">
+      <figcaption>Results: test type in the two fonts it just wrote, and every glyph averaged, traced and regrown.</figcaption>
+    </figure>
+  </header>
+
+  <section id="how">
+    <h2>From a sample sheet to a font</h2>
+    <p class="sub">A typewriter prints every character in a cell of the same width. Digitype uses that:
+      label whole lines of text, and every common letter gets many samples to average.</p>
+    <div class="steps">
+      <div class="step"><h3>Label</h3><p>Drag a box around a line and type what it says. It splits into fixed-pitch cells and warns when the text doesn't match the ink.</p></div>
+      <div class="step"><h3>Line up</h3><p>Baselines follow skewed and wavy lines; samples are levelled, scaled to one size and registered to each other.</p></div>
+      <div class="step"><h3>Average</h3><p>Every impression of a letter is averaged - dirt is different every time, the letter isn't. Odd samples are left out.</p></div>
+      <div class="step"><h3>Trace &amp; rebuild</h3><p>The average is traced, and also reduced to a skeleton and grown back, for two versions of the face.</p></div>
+      <div class="step"><h3>Install</h3><p>Two true monospaced TrueType fonts, ready to install and use - or to cut new typewriter elements from.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="split">
+      <div>
+        <h2>Label lines, not letters</h2>
+        <p class="sub">Type a line exactly as printed and it becomes dozens of samples at once.</p>
+        <ul>
+          <li>Images, multi-page TIFFs and PDFs; huge scans are fine.</li>
+          <li>Cells snap onto glyphs in charts that aren't evenly spaced.</li>
+          <li>Each cell's character is drawn under it, so a missing space shows at a glance.</li>
+          <li>Several typefaces per project, kept apart as font sets.</li>
+        </ul>
+      </div>
+      <img src="assets/label.jpg" alt="The labelling view: lines of an Olympia type sample boxed and split into cells, with the glyph list and settings on the right" loading="lazy" width="1512" height="785">
+    </div>
+  </section>
+
+  <section>
+    <div class="split">
+      <img src="assets/glyph.jpg" alt="One glyph enlarged: the average of 25 impressions, its traced outline, and the regrown seed with its strokes in orange" loading="lazy" width="1107" height="635">
+      <div>
+        <h2>Averaged, traced, regrown</h2>
+        <p class="sub">Each glyph comes out three ways, all at one common scale:</p>
+        <ul>
+          <li><b>Averaged</b> - every impression laid over the others.</li>
+          <li><b>Traced</b> - the outline of the average: the faithful font.</li>
+          <li><b>Seed, regrown</b> - the letter reduced to its strokes and their widths, then grown back: the editable font.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The sinking island</h2>
+    <div class="split">
+      <div>
+        <p class="sub">Lower a letter into water a little at a time. Where the shore from two sides meets and goes under,
+          it leaves a trail; the depth at which each point went under is the stroke's half-width. Trail plus depth
+          is the letter's <b>seed</b> - and a disc of that width at every point gives the letter back.</p>
+        <p class="sub">Dirt barely moves the trail. Specks leave short, shallow trails that are pruned; junctions and stroke ends
+          show up as the island splits and vanishes. <a href="how-it-works.html">More on how it works</a>.</p>
+      </div>
+      <img src="assets/island-k.png" alt="A k: the clean glyph and a dirtied copy, each with its shorelines, trail coloured by depth, seed, and regrown outline" loading="lazy">
+    </div>
+  </section>
+
+  <section>
+    <h2>Built for real scans</h2>
+    <div class="features">
+      <div class="feature"><h3>Any resolution</h3><p>Scans of one face at different sizes are scaled to match and weighted by sharpness.</p></div>
+      <div class="feature"><h3>Smooth from one sample</h3><p>Soft, sub-pixel edges and adaptive smoothing make single samples nearly as clean as averages.</p></div>
+      <div class="feature"><h3>Skew and waves</h3><p>Adaptive baselines and tilt correction follow crooked lines.</p></div>
+      <div class="feature"><h3>Accents and marks</h3><p>Umlauts, i-dots and % circles are kept; dots from neighbouring lines aren't.</p></div>
+      <div class="feature"><h3>Catches mistakes</h3><p>Warns when a line's text doesn't match its ink, and leaves out samples unlike the rest.</p></div>
+      <div class="feature"><h3>Test type</h3><p>Type a line and see it in both new fonts straight away.</p></div>
+    </div>
+  </section>
+
+  <section id="start">
+    <h2>Get started</h2>
+    <p class="sub">Python 3.10+. Everything runs locally; nothing is uploaded anywhere.</p>
+<pre>git clone https://github.com/dairyking98/Digitype
+cd Digitype
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python3 -m digitype label "path/to/your/scans"</pre>
+    <p class="sub">On Windows, <code>run.bat "D:\Scans\Type Samples"</code> sets everything up on first run. Then open
+      <code>http://127.0.0.1:8770</code>, draw a box, type what it says, and press Regenerate.</p>
+  </section>
+
+  <section>
+    <h2>Documentation</h2>
+    <div class="docs">
+      <a class="doc" href="user-guide.html"><h3>User guide</h3><p>Projects, labelling, baselines, results and the fonts.</p></a>
+      <a class="doc" href="how-it-works.html"><h3>How it works</h3><p>Cells, averaging, tracing and the sinking-island seed.</p></a>
+      <a class="doc" href="settings.html"><h3>Settings reference</h3><p>Every setting, its default and what it does.</p></a>
+    </div>
+  </section>
+
+  <footer>
+    Digitype · digitize typefaces · <a href="https://github.com/dairyking98/Digitype">github.com/dairyking98/Digitype</a>
+  </footer>
+</div>
+</body>
+</html>
