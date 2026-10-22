@@ -1,0 +1,8 @@
+numpy
+scipy
+scikit-image
+shapely
+fonttools
+networkx
+pillow
+matplotlib
