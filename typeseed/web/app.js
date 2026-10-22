@@ -264,6 +264,15 @@ window.addEventListener("mouseup", async () => {
     await saveBox(d.box);
   }
 });
+cv.addEventListener("dblclick", (e) => {          // double-click a box to edit its text
+  if (!S.page) return;
+  const [px, py] = toPage(e);
+  const hit = [...pageBoxes()].reverse().find((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
+  if (!hit) return;
+  S.drag = null;
+  S.sel = hit.id; showSel(); draw();
+  askGlyph(hit, hit.text || "");
+});
 cv.addEventListener("wheel", (e) => {
   e.preventDefault();
   const r = cv.getBoundingClientRect();
