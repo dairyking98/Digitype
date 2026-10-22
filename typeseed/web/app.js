@@ -277,7 +277,7 @@ function draw() {
     if (on) {
       ctx.fillStyle = "#6c9cff";
       const s = 8 / z;
-      for (const [hx, hy] of corners(b)) ctx.fillRect(hx - s / 2, hy - s / 2, s, s);
+      for (const h of handles(b)) ctx.fillRect(h.x - s / 2, h.y - s / 2, s, s);
     }
   }
   if (S.draft) {
@@ -285,7 +285,20 @@ function draw() {
     ctx.strokeRect(S.draft.x, S.draft.y, S.draft.w, S.draft.h); ctx.setLineDash([]);
   }
 }
-const corners = (b) => [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+// resize handles of the selected box: corners and edge middles; l/r/t/b
+// say which sides each one moves
+const handles = (b) => [
+  { x: b.x, y: b.y, l: 1, t: 1, cur: "nwse-resize" }, { x: b.x + b.w / 2, y: b.y, t: 1, cur: "ns-resize" },
+  { x: b.x + b.w, y: b.y, r: 1, t: 1, cur: "nesw-resize" }, { x: b.x + b.w, y: b.y + b.h / 2, r: 1, cur: "ew-resize" },
+  { x: b.x + b.w, y: b.y + b.h, r: 1, b: 1, cur: "nwse-resize" }, { x: b.x + b.w / 2, y: b.y + b.h, b: 1, cur: "ns-resize" },
+  { x: b.x, y: b.y + b.h, l: 1, b: 1, cur: "nesw-resize" }, { x: b.x, y: b.y + b.h / 2, l: 1, cur: "ew-resize" },
+];
+function handleAt(px, py) {
+  const sel = S.boxes.find((b) => b.id === S.sel);
+  if (!sel || !S.page || sel.page !== S.page.id) return null;
+  const tol = 8 / S.zoom;
+  return handles(sel).find((h) => Math.abs(px - h.x) < tol && Math.abs(py - h.y) < tol) || null;
+}
 
 // ------------------------------------------------------------------ mouse
 const toPage = (e) => {
@@ -305,11 +318,12 @@ cv.addEventListener("mousedown", (e) => {
   }
   const tol = 7 / S.zoom;
   const sel = S.boxes.find((b) => b.id === S.sel);
-  // a drawn box is locked: moving, resizing and the baseline need Shift held,
-  // so selecting (or a click that wobbles) never changes the input data
+  // the selected box's handles resize it directly; moving the whole box and
+  // dragging its baseline need Shift held, so a click that wobbles never
+  // shifts the input data
+  const h = handleAt(px, py);
+  if (h) { S.drag = { kind: "resize", h, box: sel, orig: { ...sel } }; return; }
   if (sel && sel.page === S.page.id && e.shiftKey) {
-    const ci = corners(sel).findIndex(([hx, hy]) => Math.abs(px - hx) < tol && Math.abs(py - hy) < tol);
-    if (ci >= 0) { S.drag = { kind: "resize", ci, box: sel, orig: { ...sel } }; return; }
     const cell = (sel.cells || []).find((c) => c.baseline != null && px >= c.x && px <= c.x + c.w && Math.abs(py - c.baseline) < tol);
     if (cell) { S.drag = { kind: "base", box: sel }; return; }
   }
@@ -324,6 +338,12 @@ cv.addEventListener("mousedown", (e) => {
   S.draft = { x: px, y: py, w: 0, h: 0 };
   S.drag = { kind: "new" };
 });
+cv.addEventListener("mousemove", (e) => {
+  if (S.drag || S.space) return;
+  const [px, py] = toPage(e);
+  const h = handleAt(px, py);
+  cv.style.cursor = h ? h.cur : "crosshair";
+});
 window.addEventListener("mousemove", (e) => {
   if (!S.drag) return;
   const [px, py] = toPage(e);
@@ -335,9 +355,8 @@ window.addEventListener("mousemove", (e) => {
     d.box.x = px - d.ox; d.box.y = py - d.oy; d.moved = true; d.box.cells = []; draw(); return;
   }
   if (d.kind === "resize") {
-    const o = d.orig, b = d.box;
-    const left = d.ci % 2 === 0, top = d.ci < 2;
-    const x0 = left ? px : o.x, x1 = left ? o.x + o.w : px, y0 = top ? py : o.y, y1 = top ? o.y + o.h : py;
+    const o = d.orig, b = d.box, h = d.h;
+    const x0 = h.l ? px : o.x, x1 = h.r ? px : o.x + o.w, y0 = h.t ? py : o.y, y1 = h.b ? py : o.y + o.h;
     Object.assign(b, norm({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }));
     b.cells = []; draw(); return;
   }
