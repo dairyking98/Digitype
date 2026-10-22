@@ -1,0 +1,19 @@
+Digitype sample sheet - type double-spaced (1.5 at least), a space between characters as shown.
+Repeat the block two or three times. Add your machine's accented letters and symbols.
+Note at the top: machine, typeface name, pitch (10 or 12 per inch...).
+
+The quick brown fox jumps over the lazy dog. 1234567890
+
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+
+A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+
+1 2 3 4 5 6 7 8 9 0 . , : ; ! ? ' " - _ ( ) / & % $ # @ * + =
+
+n o p q r s t u v w x y z a b c d e f g h i j k l m
+
+N O P Q R S T U V W X Y Z A B C D E F G H I J K L M
+
+0 9 8 7 6 5 4 3 2 1 = + * @ # $ % & / ) ( _ - " ' ? ! ; : , .
+
+ä ö ü Ä Ö Ü ß é è à ç ½ ¼ ¾ ¢ § £

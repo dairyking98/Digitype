@@ -15,7 +15,7 @@ it up and writes two fixed-pitch TrueType fonts.
 - [Tips for good results](#tips-for-good-results)
 - [Controls](#controls)
 
-See also: [How it works](how-it-works.md) · [Settings reference](settings.md)
+See also: [Preparing type samples](preparing-samples.md) · [How it works](how-it-works.md) · [Settings reference](settings.md)
 
 ## Install and start
 
@@ -180,6 +180,9 @@ Windows needs and install normally.
 The family name is the font set's **Font name** setting, or the set's name.
 
 ## Tips for good results
+
+- **Making a new sample?** Follow [Preparing type samples](preparing-samples.md): 1.5 or double
+  line spacing, a space between characters, every character several times, a greyscale scan.
 
 - **Label lots of body text.** More samples of a letter means a cleaner, more faithful average.
   Single samples work, and are smoothed to look consistent, but more is always better.

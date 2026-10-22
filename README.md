@@ -4,7 +4,7 @@
 into clean, installable monospaced fonts. Label where each character is; Digitype averages every
 impression, traces it, and rebuilds it.
 
-**Site:** https://leonardchau.com/Digitype/ · **Docs:** [User guide](docs/user-guide.md) ·
+**Site:** https://leonardchau.com/Digitype/ · **Docs:** [Preparing samples](docs/preparing-samples.md) · [User guide](docs/user-guide.md) ·
 [How it works](docs/how-it-works.md) · [Settings](docs/settings.md)
 
 ![Results: test type in the two generated fonts, and glyphs averaged, traced and regrown](docs/assets/results.jpg)
