@@ -76,3 +76,6 @@ label.inline select, #res-sort { font: inherit; color: var(--text); background: 
 .ov-imgs figure > div { background: #fff; border-radius: 6px; aspect-ratio: var(--ar, 3 / 5); max-height: 72vh; display: flex; align-items: center; justify-content: center; }
 .ov-imgs svg { width: 100%; height: 100%; }
 .ov-imgs figcaption { text-align: center; color: var(--text-3); font-size: 12px; margin-top: 4px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button.small { padding: 2px 8px; font-size: 11px; }
+.ov-odd { background: #2d2216; border: 1px solid #5a4020; color: #f0c48d; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 12px; }

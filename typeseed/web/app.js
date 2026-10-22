@@ -39,9 +39,26 @@ function showSettings(est) {
   const s = S.settings;
   $("set-pitch").value = s.pitch_mm; $("set-name").value = s.font_name; $("set-up").value = s.upsample;
   $("set-weight").value = s.weight; $("set-add").value = s.add;
-  $("pitch-est").textContent = est ? `From your text runs: about ${est.toFixed(3)} mm (${(25.4 / est).toFixed(1)} per inch)` : "";
+  $("set-el").value = s.expand_left; $("set-er").value = s.expand_right;
+  const pe = $("pitch-est");
+  pe.innerHTML = "";
+  if (est) {
+    pe.append(`From your text runs: about ${est.toFixed(3)} mm (${(25.4 / est).toFixed(1)} per inch) `);
+    if (Math.abs(est - s.pitch_mm) / s.pitch_mm > 0.03) {
+      const b = document.createElement("button");
+      b.className = "small"; b.textContent = `Use ${est.toFixed(2)}`;
+      b.title = "Set this font's pitch to the measured value";
+      b.onclick = async () => {
+        S.settings = await api("/api/settings", { method: "POST", body: { pitch_mm: Number(est.toFixed(3)) } });
+        $("set-pitch").value = S.settings.pitch_mm;
+        afterChange();
+        showSettings(est);
+      };
+      pe.append(b);
+    }
+  }
 }
-for (const [id, key] of [["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
+for (const [id, key] of [["set-el", "expand_left"], ["set-er", "expand_right"], ["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
   $(id).addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { [key]: e.target.value } }); });
 }
 
@@ -121,6 +138,20 @@ function renderGlyphs() {
     el.appendChild(d);
   }
   if (!keys.length) el.innerHTML = '<p class="muted">None yet.</p>';
+}
+
+function jumpToBox(id) {
+  const b = S.boxes.find((x) => x.id === id);
+  if (!b) return;
+  const go = () => {
+    S.sel = b.id;
+    const r = cv.getBoundingClientRect();
+    S.zoom = Math.min(r.width / (b.w * 1.6), r.height / (b.h * 4), 6);
+    S.panX = r.width / 2 - (b.x + b.w / 2) * S.zoom;
+    S.panY = r.height / 2 - (b.y + b.h / 2) * S.zoom;
+    viewChanged(); showSel();
+  };
+  if (!S.page || S.page.id !== b.page) openPage(b.page).then(go); else go();
 }
 
 function jumpTo(ch) {
@@ -551,7 +582,7 @@ function renderResult(r) {
     for (const [ch, g] of entries) {
       const card = document.createElement("div");
       card.className = "rcard";
-      const title = `<div class="t"><b></b><span class="muted">${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}</span></div>`;
+      const title = `<div class="t"><b></b><span class="muted">${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}</span></div>`;
       if (!g.n || g.error && !g.avg_svg) { card.innerHTML = title; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
       card.innerHTML = `${title}
         <div class="imgs"><div>${panel("avg", g, r)}</div><div>${panel("trace", g, r)}</div><div>${panel("seed", g, r, show ? g.strokes : null)}</div></div>
@@ -574,6 +605,8 @@ function enlarge(ch, g, r) {
   ov.innerHTML = `<div class="ov-box" role="dialog" aria-label="Glyph ${ch}">
     <div class="ov-head"><b class="ov-ch"></b><span class="muted">${g.n} sample${g.n === 1 ? "" : "s"}${g.skipped ? ` (${g.skipped} unusable)` : ""}${g.iou != null ? ` · seed vs trace match ${g.iou}` : ""}</span>
       <span class="spacer"></span><button class="ov-visit">Visit its samples</button><button class="ov-close" title="Close (Esc)">✕</button></div>
+    ${g.odd && g.odd.length ? `<div class="ov-odd">Left out of the average - unlike the other samples (match ${g.odd.map((o) => o.match).join(", ")} vs a typical ${g.odd[0].typical}). Usually a label mistake (an ä labelled a, a letter one cell off):
+      ${g.odd.map((o) => `<button class="small" data-box="${o.box}">Visit box ${o.box}</button>`).join(" ")}</div>` : ""}
     <div class="ov-imgs" style="--ar:${frameOf(r).w} / ${frameOf(r).h}">
       <figure><div>${panel("avg", g, r)}</div><figcaption>averaged (${g.n} impression${g.n === 1 ? "" : "s"})</figcaption></figure>
       <figure><div>${panel("trace", g, r)}</div><figcaption>traced - the Average font</figcaption></figure>
@@ -585,6 +618,7 @@ function enlarge(ch, g, r) {
   ov.onclick = (e) => { if (e.target === ov) close(); };
   ov.querySelector(".ov-close").onclick = close;
   ov.querySelector(".ov-visit").onclick = () => { close(); tab("label"); jumpTo(ch); };
+  ov.querySelectorAll("[data-box]").forEach((b) => { b.onclick = () => { close(); tab("label"); jumpToBox(Number(b.dataset.box)); }; });
   window.addEventListener("keydown", esc, true);
   document.body.appendChild(ov);
 }

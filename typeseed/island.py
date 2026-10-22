@@ -166,6 +166,9 @@ def prune(isl, ratio=2.5, corner_frac=0.35, min_px=3.0, rounds=8):
     pieces (the dot of an i, a full stop) are never dropped here: specks
     are removed from the ink before the island sinks. Then joins branches
     through nodes left with exactly two."""
+    # a real dot (the dot of an i, a full stop) is a piece of ink whose trail
+    # is a single point from the start - not the end of a pruned corner ridge
+    dots = {k for k in isl.nodes if isl.degree(k) == 0}
     _merge_passes(isl)
     for _ in range(rounds):
         _collapse_short(isl)
@@ -200,10 +203,10 @@ def prune(isl, ratio=2.5, corner_frac=0.35, min_px=3.0, rounds=8):
         _merge_passes(isl)
     used = {br.a for br in isl.branches} | {br.b for br in isl.branches}
     # a round dot's trail can shrink to a single point: keep it as a dot
-    isl.nodes = {k: v for k, v in isl.nodes.items() if k in used or isl.degree(k) == 0}
+    isl.nodes = {k: v for k, v in isl.nodes.items() if k in used or k in dots}
     _classify(isl)
     for k, v in isl.nodes.items():
-        if k not in used:
+        if k in dots:
             v.kind = "dot"
     return isl
 

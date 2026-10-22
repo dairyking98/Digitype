@@ -157,7 +157,7 @@ def _box_cells(project, box):
         base = None
         if len(rows) and c in ON_BASELINE:
             base = y + rows.max() + 1.0
-        out.append({"char": c, "x": x + cx, "y": y, "w": cw, "h": h, "baseline": base,
+        out.append({"char": c, "box": box.get("id"), "x": x + cx, "y": y, "w": cw, "h": h, "baseline": base,
                     "has_ink": bool(len(rows)), "thr": thr, "warn": warn})
     known = [c["baseline"] for c in out if c["baseline"] is not None]
     line = float(np.median(known)) if known else None
@@ -215,40 +215,51 @@ def estimate_pitch_mm(project, sid=None):
 
 # ------------------------------------------------------------------ averaging
 def _sample(project, cell, page, settings):
-    """One cell's ink, in a frame 2 pitches wide centred on the cell, with
-    the baseline at a known row. -> (mask float, base_row, cx_col) | None"""
+    """One cell's ink. The capture window is the cell widened by
+    expand_left / expand_right (fractions of the cell's width) - ink there
+    counts when its piece reaches the middle of the cell, so a wide letter
+    spilling past its cell is kept and a neighbour that only reaches in
+    isn't. -> (mask float, base_row, cx_col) | None"""
     if not cell["has_ink"] or cell["baseline"] is None:
         return None
     g = project.grey(page["id"])
-    p = pitch_px(project, page, settings)
-    cx = cell["x"] + cell["w"] / 2
-    x0, x1 = int(cx - p), int(cx + p)
+    w = cell["w"]
+    el = max(0.0, float(settings.get("expand_left", 0.5)))
+    er = max(0.0, float(settings.get("expand_right", 0.5)))
+    cx = cell["x"] + w / 2
+    x0, x1 = int(cell["x"] - el * w), int(np.ceil(cell["x"] + w + er * w))
     y0, y1 = int(cell["y"]), int(cell["y"] + cell["h"])
-    crop = np.asarray(g[max(0, y0):y1, max(0, x0):x1]).astype(np.float32)
+    x0c = max(0, x0)
+    crop = np.asarray(g[max(0, y0):y1, x0c:x1]).astype(np.float32)
     if crop.size == 0:
         return None
     ink = _ink(crop, cell["thr"])
-    # keep only ink that belongs to this cell: components reaching its core
+    # keep only ink that belongs to this cell: pieces reaching its core
     lab, n = ndimage.label(ink, structure=np.ones((3, 3)))
-    core_a = int(cell["x"] - max(0, x0) + 0.15 * cell["w"])
-    core_b = int(cell["x"] - max(0, x0) + 0.85 * cell["w"])
+    core_a = int(cell["x"] - x0c + 0.15 * w)
+    core_b = int(cell["x"] - x0c + 0.85 * w)
     keep = set(np.unique(lab[:, max(0, core_a):max(core_a + 1, core_b)])) - {0}
     mask = np.isin(lab, list(keep))
     if not mask.any():
         return None
-    return mask.astype(np.float32), cell["baseline"] - max(0, y0), cx - max(0, x0)
+    return mask.astype(np.float32), cell["baseline"] - max(0, y0), cx - x0c, {"box": cell.get("box"), "w": w}
 
 
 def average(samples, pitch, max_shift_frac=0.12):
     """Line samples up (cell centre, baseline), register each to the median
-    with sub-pixel phase correlation, average. -> (prob map, base_row, cx)"""
+    with sub-pixel phase correlation, then compare each with the majority
+    shape: with 3 or more samples, one that clearly disagrees (most often a
+    label mistake - an a that is really an a-umlaut, a letter one cell off)
+    is left out. -> (prob map, base_row, cx, n used, [odd sample info])"""
     above = max(s[1] for s in samples)
     below = max(s[0].shape[0] - s[1] for s in samples)
+    left = max(s[2] for s in samples)                    # room for the widest sample on each side
+    right = max(s[0].shape[1] - s[2] for s in samples)
     H = int(np.ceil(above + below)) + 4
-    W = int(np.ceil(2 * pitch)) + 4
-    base, cx = above + 2, W / 2
+    W = int(np.ceil(left + right)) + 4
+    base, cx = above + 2, left + 2
     stack = []
-    for m, br, scx in samples:
+    for m, br, scx, *_ in samples:
         canvas = np.zeros((H, W), np.float32)
         dy, dx = base - br, cx - scx
         iy, ix = int(np.floor(dy)), int(np.floor(dx))
@@ -258,14 +269,35 @@ def average(samples, pitch, max_shift_frac=0.12):
         canvas = ndimage.shift(canvas, (dy - iy, dx - ix), order=1)
         stack.append(canvas)
     stack = np.array(stack)
+    odd = []
     if len(stack) >= 3:
         ref = np.median(stack, axis=0)
-        lim = max_shift_frac * pitch
+        # sideways a cell split can drift by up to half a cell along a line,
+        # so the samples line themselves up by up to that; up and down only a
+        # little (the baseline is measured)
+        cellw = float(np.median([s[3]["w"] for s in samples if len(s) > 3] or [pitch]))
+        for _ in range(2):
+            ref = np.median(stack, axis=0)
+            for i in range(len(stack)):
+                (dy, dx), _, _ = phase_cross_correlation(ref, stack[i], upsample_factor=8, normalization=None)
+                if abs(dx) <= 0.5 * cellw and abs(dy) <= max_shift_frac * cellw:
+                    stack[i] = ndimage.shift(stack[i], (dy, dx), order=1)
+        major = np.median(stack, axis=0) >= 0.5
+        ious = []
         for i in range(len(stack)):
-            shift, _, _ = phase_cross_correlation(ref, stack[i], upsample_factor=8, normalization=None)
-            if np.hypot(*shift) <= lim:
-                stack[i] = ndimage.shift(stack[i], shift, order=1)
-    return stack.mean(axis=0), base, cx, len(stack)
+            m = stack[i] >= 0.5
+            u = (m | major).sum()
+            ious.append(float((m & major).sum() / u) if u else 0.0)
+        med = float(np.median(ious))
+        cut = med - 0.15
+        keep = [i for i, v in enumerate(ious) if v >= cut]
+        if len(keep) >= max(2, len(stack) // 2) and len(keep) < len(stack):
+            for i, v in enumerate(ious):
+                if v < cut:
+                    info = samples[i][3] if len(samples[i]) > 3 else {}
+                    odd.append({"box": info.get("box"), "match": round(v, 3), "typical": round(med, 3)})
+            stack = stack[keep]
+    return stack.mean(axis=0), base, cx, len(stack), odd
 
 
 # ------------------------------------------------------------------ geometry
@@ -332,7 +364,10 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     -> (result for the page, regrown shape, traced shape), font units. If
     only the seed step fails, the traced average still goes in the font."""
     adv, upem, up = st["advance"], st["upem"], int(st["upsample"])
-    prob, base, cx, n = average(samples, p)
+    prob, base, cx, n, odd = average(samples, p)
+    if odd:
+        log(f"    {len(odd)} sample{'s' if len(odd) > 1 else ''} of {ch!r} left out - unlike the others "
+            f"(box {', '.join(str(o['box']) for o in odd)}): check the label")
     hi = np.clip(ndimage.zoom(prob, up, order=1), 0, 1)
     k = adv / (p * up)                                   # font units per upsampled pixel
     avg_shape = _trace(hi)
@@ -369,7 +404,7 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     else:
         bounds = None
     result = {
-        "n": n, "skipped": skipped, "bounds": bounds,
+        "n": n, "skipped": skipped, "bounds": bounds, "odd": odd,
         "avg_img": [round(adv / 2 - cx * k0, 1), round(-base * k0, 1), round(W * k0, 1), round(H * k0, 1)],
         "avg_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(),
         "seed_svg": _svg(grown_u), "avg_svg": _svg(avg_u),

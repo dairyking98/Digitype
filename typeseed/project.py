@@ -21,7 +21,7 @@ IMAGE_EXT = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 PDF_DPI = 600
 PREVIEW_MAX = 2400
 DEFAULT_SETTINGS = {"pitch_mm": 2.54, "upem": 1000, "advance": 600, "font_name": "", "upsample": 4,
-                    "weight": 1.0, "add": 0.0}
+                    "weight": 1.0, "add": 0.0, "expand_left": 0.5, "expand_right": 0.5}
 
 
 class Project:

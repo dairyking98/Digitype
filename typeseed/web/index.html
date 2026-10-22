@@ -70,6 +70,13 @@
       <label title="Character pitch of the typewriter: 2.54 mm = 10 per inch (pica), 2.12 mm = 12 per inch (elite)">Pitch (mm)
         <input id="set-pitch" type="number" step="0.01"></label>
       <div id="pitch-est" class="muted small"></div>
+      <div class="row2">
+        <label title="How far past the left edge of each cell ink is collected, as a fraction of the cell's width. Raise it when wide letters lose their left side.">Expand left
+          <input id="set-el" type="number" step="0.05" min="0"></label>
+        <label title="How far past the right edge of each cell ink is collected, as a fraction of the cell's width. Raise it when wide letters (w, m, W) lose their right side.">Expand right
+          <input id="set-er" type="number" step="0.05" min="0"></label>
+      </div>
+      <div class="muted small">Ink outside its cell still counts when it's part of a stroke that reaches the cell's middle, so neighbours don't leak in.</div>
       <label title="Font name for the exported .ttf files">Font name <input id="set-name"></label>
       <label title="How much the averaged sample is enlarged before the seed is taken - smoother curves, slower">Detail ×
         <input id="set-up" type="number" step="1" min="1" max="8"></label>
