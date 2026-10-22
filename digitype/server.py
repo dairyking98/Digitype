@@ -87,7 +87,7 @@ def make_app(project: Project):
     def preview(pid: int):
         try:
             return FileResponse(project.preview(pid), media_type="image/jpeg",
-                                headers={"Cache-Control": "max-age=86400"})
+                                headers={"Cache-Control": "no-cache"})
         except KeyError:
             raise HTTPException(404, "no such page")
 

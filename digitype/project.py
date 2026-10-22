@@ -150,11 +150,25 @@ class Project:
         """The page as a uint8 grey array (memory-mapped from the cache),
         turned the way the page's quarter turns and rotation say."""
         page = self.page(pid)
-        path = os.path.join(self.root, "cache", f"page_{pid}{self._orient_key(page)}.npy")
+        key = self._orient_key(page)
+        path = os.path.join(self.root, "cache", f"page_{pid}{key}.npy")
+        if not os.path.isfile(path):
+            base = None if not key else self._base_grey(pid)       # turn the cached, unturned page
+            with self._lock:
+                if not os.path.isfile(path):
+                    arr = _orient(np.asarray(base) if base is not None else _load_grey(page), page)
+                    np.save(path + ".tmp.npy", arr)
+                    os.replace(path + ".tmp.npy", path)
+        return np.load(path, mmap_mode="r")
+
+    def _base_grey(self, pid):
+        """The page as scanned, unturned (kept cached: every orientation is
+        made from it)."""
+        path = os.path.join(self.root, "cache", f"page_{pid}.npy")
         if not os.path.isfile(path):
             with self._lock:
                 if not os.path.isfile(path):
-                    arr = _orient(_load_grey(page), page)
+                    arr = _load_grey(self.page(pid))
                     np.save(path + ".tmp.npy", arr)
                     os.replace(path + ".tmp.npy", path)
         return np.load(path, mmap_mode="r")
@@ -186,21 +200,38 @@ class Project:
                             b["baseline"] = None
                 page["quarter"], page["rotation"] = new
                 page["w"], page["h"] = (w0, h0) if new[0] % 2 == 0 else (h0, w0)
-                for f in os.listdir(os.path.join(self.root, "cache")):     # drop this page's other orientations
-                    if f.startswith((f"page_{pid}_", f"preview_{pid}_")) or f in (f"page_{pid}.npy", f"preview_{pid}.jpg"):
-                        if self._orient_key(page) not in f or not self._orient_key(page):
-                            try:
-                                os.remove(os.path.join(self.root, "cache", f))
-                            except OSError:
-                                pass
+                key = self._orient_key(page)
+                for f in os.listdir(os.path.join(self.root, "cache")):     # drop this page's other turned copies
+                    if f.startswith((f"page_{pid}_", f"preview_{pid}_")) and (not key or key not in f):
+                        try:                                               # (the unturned page stays: all are made from it)
+                            os.remove(os.path.join(self.root, "cache", f))
+                        except OSError:
+                            pass
         self.save()
         return page
 
     def preview(self, pid):
-        path = os.path.join(self.root, "cache", f"preview_{pid}{self._orient_key(self.page(pid))}.jpg")
+        page = self.page(pid)
+        key = self._orient_key(page)
+        path = os.path.join(self.root, "cache", f"preview_{pid}{key}.jpg")
         if not os.path.isfile(path):
-            g = self.grey(pid)
-            im = Image.fromarray(np.asarray(g))
+            if key:
+                # a turned page's preview: turn the small unturned preview -
+                # instant, where turning a 100-megapixel scan takes seconds
+                # (that happens only when the full page is needed)
+                im = Image.open(self.preview_base(pid)).convert("L")
+                im = Image.fromarray(_orient(np.asarray(im), page))
+            else:
+                im = Image.fromarray(np.asarray(self._base_grey(pid)))
+                im.thumbnail((PREVIEW_MAX, PREVIEW_MAX), Image.LANCZOS)
+            im.save(path + ".tmp.jpg", quality=85)
+            os.replace(path + ".tmp.jpg", path)
+        return path
+
+    def preview_base(self, pid):
+        path = os.path.join(self.root, "cache", f"preview_{pid}.jpg")
+        if not os.path.isfile(path):
+            im = Image.fromarray(np.asarray(self._base_grey(pid)))
             im.thumbnail((PREVIEW_MAX, PREVIEW_MAX), Image.LANCZOS)
             im.save(path + ".tmp.jpg", quality=85)
             os.replace(path + ".tmp.jpg", path)
@@ -328,9 +359,8 @@ def _orient(arr, page):
     if q:
         arr = np.ascontiguousarray(np.rot90(arr, k=-q))
     r = float(page.get("rotation", 0.0))
-    if r:
-        from scipy import ndimage
-        arr = ndimage.rotate(arr, -r, reshape=False, order=1, cval=255, output=np.uint8)
+    if r:   # PIL: positive = counter-clockwise; ours is clockwise +
+        arr = np.asarray(Image.fromarray(arr).rotate(-r, resample=Image.BILINEAR, fillcolor=255))
     return arr
 
 

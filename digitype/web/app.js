@@ -213,24 +213,36 @@ async function reloadPage(refit) {
   const id = S.page.id;
   const img = new Image();
   img.src = `/api/page/${id}/preview?v=${Date.now()}`;
-  $("log").textContent = "Turning the page…";
   await img.decode().catch(() => {});
-  if (S.page.id !== id) return;
-  S.img = img; S.imgScale = img.naturalWidth / S.page.w; S.hi = null; S.rotPreview = 0;
-  $("log").textContent = "";
-  showPageTools();
-  if (refit) fit(); else viewChanged();
+  if (S.page.id !== id) return null;
+  return img;
 }
+let pageBusy = null, pageNext = null;
 async function setPage(body, refit) {
-  const r = await api(`/api/page/${S.page.id}`, { method: "POST", body });
-  Object.assign(S.page, r.page);
-  const i = S.pages.findIndex((p) => p.id === S.page.id); if (i >= 0) S.pages[i] = S.page;
-  setBoxes(r.boxes);
-  renderGlyphs(); renderSets();
-  if ("rotation" in body || "quarter" in body) await reloadPage(refit); else showPageTools();
+  // one change at a time; a newer one waiting replaces any older one
+  if (pageBusy) { pageNext = { body, refit }; return; }
+  pageBusy = body;
+  const turning = "rotation" in body || "quarter" in body;
+  if (turning) $("log").textContent = "Turning the page…";
+  try {
+    const r = await api(`/api/page/${S.page.id}`, { method: "POST", body });
+    const img = turning ? await reloadPage(refit) : null;
+    // swap everything at once: until the new image is here the page stays
+    // turned on screen (the live preview), so it never snaps back
+    Object.assign(S.page, r.page);
+    const i = S.pages.findIndex((p) => p.id === S.page.id); if (i >= 0) S.pages[i] = S.page;
+    setBoxes(r.boxes);
+    if (img) { S.img = img; S.imgScale = img.naturalWidth / S.page.w; S.hi = null; S.rotPreview = 0; }
+    renderGlyphs(); renderSets(); showPageTools();
+    if (turning) { if (refit) fit(); else viewChanged(); }
+    $("log").textContent = turning ? `Page turned to ${S.page.rotation || 0}°${S.page.quarter ? ` + ${S.page.quarter * 90}°` : ""} - saved.` : "";
+  } catch (e) { $("log").textContent = `Couldn't change the page: ${e.message}`; S.rotPreview = 0; showPageTools(); draw(); }
+  pageBusy = null;
+  if (pageNext) { const n = pageNext; pageNext = null; setPage(n.body, n.refit); }
 }
 $("pg-dpi").addEventListener("change", (e) => setPage({ dpi: e.target.value ? Number(e.target.value) : null }));
 $("pg-rot").addEventListener("input", (e) => {          // live: turn what's on screen, guides on
+  if (pageBusy) return;
   S.rotPreview = Number(e.target.value) - (S.page.rotation || 0);
   $("pg-rot-n").value = e.target.value;
   draw();
