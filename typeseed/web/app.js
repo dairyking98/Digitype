@@ -499,38 +499,94 @@ $("regen").onclick = async () => {
   poll();
 };
 
-function svgOf(d, strokes, adv) {
-  const lines = (strokes || []).map((p) => `<polyline points="${p.map(([x, y]) => `${x},${y}`).join(" ")}" fill="none" stroke="#e8590c" stroke-width="8"/>`).join("");
-  return `<svg viewBox="-60 -850 ${adv + 120} 1200"><g transform="scale(1,-1)">
-    <line x1="-60" x2="${adv + 60}" y1="0" y2="0" stroke="#bbb" stroke-width="3" stroke-dasharray="12 8"/>
-    <rect x="0" y="-300" width="${adv}" height="1100" fill="none" stroke="#ddd" stroke-width="2"/>
-    <path d="${d}" fill="#111" fill-rule="evenodd"/>${lines}</g></svg>`;
+// Every glyph is drawn in font units inside one frame shared by the whole
+// font (r.extent), so sizes compare - including the averaged scan, placed by
+// its baseline and pitch rather than by its pixel count.
+function frameOf(r) {
+  const e = r.extent || [0, -0.3 * (r.upem || 1000), r.advance, 0.85 * (r.upem || 1000)];
+  const pad = 0.06 * (e[3] - e[1]);
+  return { x: e[0] - pad, y: -(e[3] + pad), w: e[2] - e[0] + 2 * pad, h: e[3] - e[1] + 2 * pad };
 }
+function panel(kind, g, r, strokes) {
+  const f = frameOf(r), adv = r.advance, sw = f.h / 300;
+  let body = "";
+  if (kind === "avg") {
+    body = g.avg_img
+      ? `<image href="${g.avg_png}" x="${g.avg_img[0]}" y="${g.avg_img[1]}" width="${g.avg_img[2]}" height="${g.avg_img[3]}" preserveAspectRatio="none" style="image-rendering:pixelated"/>`
+      : `<text x="${f.x + f.w / 2}" y="${f.y + f.h / 2}" font-size="${f.h / 14}" text-anchor="middle" fill="#999">regenerate to see</text>`;
+  } else {
+    const d = kind === "seed" ? g.seed_svg : g.avg_svg;
+    const lines = (strokes || []).map((p) => `<polyline points="${p.map(([x, y]) => `${x},${y}`).join(" ")}" fill="none" stroke="#e8590c" stroke-width="${sw * 2.5}"/>`).join("");
+    body = `<g transform="scale(1,-1)"><path d="${d || ""}" fill="#111" fill-rule="evenodd"/>${lines}</g>`;
+  }
+  return `<svg viewBox="${f.x} ${f.y} ${f.w} ${f.h}" preserveAspectRatio="xMidYMid meet">
+    <rect x="0" y="${f.y}" width="${adv}" height="${f.h}" fill="none" stroke="#e3e3e3" stroke-width="${sw}"/>
+    <line x1="${f.x}" x2="${f.x + f.w}" y1="0" y2="0" stroke="#bbb" stroke-width="${sw}" stroke-dasharray="${sw * 6} ${sw * 4}"/>
+    ${body}</svg>`;
+}
+const SORTS = {
+  char: { label: "character", fn: (a, b) => a[0].localeCompare(b[0]) },
+  most: { label: "most samples", fn: (a, b) => (b[1].n || 0) - (a[1].n || 0) || a[0].localeCompare(b[0]) },
+  fewest: { label: "fewest samples", fn: (a, b) => (a[1].n || 0) - (b[1].n || 0) || a[0].localeCompare(b[0]) },
+  match: { label: "worst match first", fn: (a, b) => (a[1].iou ?? 2) - (b[1].iou ?? 2) },
+};
+let lastResult = null;
 function renderResult(r) {
+  lastResult = r;
   const fonts = Object.entries(r.fonts || {}).map(([k, f]) => `<a class="dl" href="/api/out/${encodeURIComponent(r.out)}/${encodeURIComponent(f)}" download>${f}</a>`).join(" · ");
   const est = r.estimated_pitch_mm ? ` · your text runs suggest ${r.estimated_pitch_mm.toFixed(3)} mm` : "";
+  const sort = localStorage.getItem("ts.sort") || "char";
   $("result-head").innerHTML = `<b>${r.set_name || ""}</b> · <b>Fonts:</b> ${fonts || "none"} <span class="muted">pitch ${r.pitch_mm} mm${est}</span>
-    <label style="margin:0 0 0 auto;display:flex;gap:6px;align-items:center"><input type="checkbox" id="show-strokes" checked style="width:auto"> seed strokes</label>`;
-  const grid = $("result-grid");
-  grid.innerHTML = "";
-  const show = () => $("show-strokes")?.checked;
+    <span class="spacer"></span>
+    <label class="inline">Sort <select id="res-sort">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}"${k === sort ? " selected" : ""}>${v.label}</option>`).join("")}</select></label>
+    <label class="inline"><input type="checkbox" id="show-strokes" ${localStorage.getItem("ts.strokes") === "0" ? "" : "checked"}> seed strokes</label>
+    ${r.extent ? "" : '<span class="muted">(regenerate once more for one common scale)</span>'}`;
+  const f = frameOf(r);
   const paint = () => {
+    const grid = $("result-grid");
     grid.innerHTML = "";
-    for (const [ch, g] of Object.entries(r.chars)) {
+    grid.style.setProperty("--ar", `${f.w} / ${f.h}`);
+    const show = $("show-strokes").checked;
+    const entries = Object.entries(r.chars).sort(SORTS[$("res-sort").value].fn);
+    for (const [ch, g] of entries) {
       const card = document.createElement("div");
       card.className = "rcard";
-      if (!g.n) { card.innerHTML = `<div class="t"><b></b><span class="muted">${g.error || "no samples"}</span></div>`; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
-      card.innerHTML = `<div class="t"><b></b><span class="muted">${g.n} sample${g.n === 1 ? "" : "s"}${g.iou != null ? ` · match ${g.iou}` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}</span></div>
-        <div class="imgs"><div><img alt="" src="${g.avg_png}"></div><div>${svgOf(g.avg_svg, null, r.advance)}</div><div>${svgOf(g.seed_svg, show() ? g.strokes : null, r.advance)}</div></div>
+      const title = `<div class="t"><b></b><span class="muted">${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}</span></div>`;
+      if (!g.n || g.error && !g.avg_svg) { card.innerHTML = title; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
+      card.innerHTML = `${title}
+        <div class="imgs"><div>${panel("avg", g, r)}</div><div>${panel("trace", g, r)}</div><div>${panel("seed", g, r, show ? g.strokes : null)}</div></div>
         <div class="cap"><span>averaged</span><span>traced</span><span>seed, regrown</span></div>`;
       card.querySelector("b").textContent = ch;
-      card.title = "Click to visit this glyph's samples";
-      card.onclick = () => { tab("label"); jumpTo(ch); };
+      card.title = "Click to enlarge";
+      card.onclick = () => enlarge(ch, g, r);
       grid.appendChild(card);
     }
   };
   paint();
-  $("show-strokes").onchange = paint;
+  $("res-sort").onchange = (e) => { localStorage.setItem("ts.sort", e.target.value); paint(); };
+  $("show-strokes").onchange = (e) => { localStorage.setItem("ts.strokes", e.target.checked ? "1" : "0"); paint(); };
+}
+
+function enlarge(ch, g, r) {
+  const ov = document.createElement("div");
+  ov.className = "overlay";
+  const show = localStorage.getItem("ts.strokes") !== "0";
+  ov.innerHTML = `<div class="ov-box" role="dialog" aria-label="Glyph ${ch}">
+    <div class="ov-head"><b class="ov-ch"></b><span class="muted">${g.n} sample${g.n === 1 ? "" : "s"}${g.skipped ? ` (${g.skipped} unusable)` : ""}${g.iou != null ? ` · seed vs trace match ${g.iou}` : ""}</span>
+      <span class="spacer"></span><button class="ov-visit">Visit its samples</button><button class="ov-close" title="Close (Esc)">✕</button></div>
+    <div class="ov-imgs" style="--ar:${frameOf(r).w} / ${frameOf(r).h}">
+      <figure><div>${panel("avg", g, r)}</div><figcaption>averaged (${g.n} impression${g.n === 1 ? "" : "s"})</figcaption></figure>
+      <figure><div>${panel("trace", g, r)}</div><figcaption>traced - the Average font</figcaption></figure>
+      <figure><div>${panel("seed", g, r, show ? g.strokes : null)}</div><figcaption>seed, regrown - the Seed font</figcaption></figure>
+    </div></div>`;
+  ov.querySelector(".ov-ch").textContent = ch;
+  const close = () => { ov.remove(); window.removeEventListener("keydown", esc, true); };
+  const esc = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  ov.onclick = (e) => { if (e.target === ov) close(); };
+  ov.querySelector(".ov-close").onclick = close;
+  ov.querySelector(".ov-visit").onclick = () => { close(); tab("label"); jumpTo(ch); };
+  window.addEventListener("keydown", esc, true);
+  document.body.appendChild(ov);
 }
 
 resize();

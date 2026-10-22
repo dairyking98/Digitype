@@ -51,7 +51,8 @@ pre#log { margin: 0; max-height: 220px; overflow: auto; font-size: 11px; color: 
 .rcard .t { display: flex; justify-content: space-between; margin-bottom: 6px; }
 .rcard .t b { font: 18px ui-monospace, monospace; }
 .rcard .imgs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
-.rcard .imgs > div { background: #fff; border-radius: 4px; aspect-ratio: 3 / 5; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.rcard { cursor: zoom-in; }
+.rcard .imgs > div { background: #fff; border-radius: 4px; aspect-ratio: var(--ar, 3 / 5); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .rcard .imgs img { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
 .rcard .imgs svg { width: 100%; height: 100%; }
 .rcard .cap { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 10px; color: var(--text-3); text-align: center; margin-top: 2px; }
@@ -61,3 +62,17 @@ a.dl { color: var(--accent); }
 .setbar label { margin: 0; color: var(--text-2); }
 .setbar select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; max-width: 220px; }
 .setbar input { width: 180px; }
+#result-head .spacer { flex: 1; }
+label.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+label.inline input[type=checkbox] { width: auto; margin: 0; }
+label.inline select, #res-sort { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .7); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.ov-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; width: min(1400px, 100%); max-height: 100%; overflow: auto; }
+.ov-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ov-head .spacer { flex: 1; }
+.ov-ch { font: 28px ui-monospace, monospace; }
+.ov-imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.ov-imgs figure { margin: 0; }
+.ov-imgs figure > div { background: #fff; border-radius: 6px; aspect-ratio: var(--ar, 3 / 5); max-height: 72vh; display: flex; align-items: center; justify-content: center; }
+.ov-imgs svg { width: 100%; height: 100%; }
+.ov-imgs figcaption { text-align: center; color: var(--text-3); font-size: 12px; margin-top: 4px; }

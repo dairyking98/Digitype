@@ -355,9 +355,22 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
             seed_error = f"seed failed: {e}"
             log(f"    {ch!r} {seed_error} (its traced average is still in the font)\n" + traceback.format_exc(limit=3))
     buf = io.BytesIO()
-    Image.fromarray(((1 - prob) * 255).astype(np.uint8)).save(buf, "PNG")
+    rgba = np.zeros(prob.shape + (4,), np.uint8)               # black ink, the paper transparent
+    rgba[..., 3] = (np.clip(prob, 0, 1) * 255).astype(np.uint8)
+    Image.fromarray(rgba, "RGBA").save(buf, "PNG")
+    # where the averaged image sits in font units (SVG, y down): pixel
+    # (col, row) -> x = (col - cx) * k0 + adv/2, y = (row - base) * k0
+    k0 = adv / p
+    H, W = prob.shape
+    shapes = [g for g in (grown_u, avg_u) if g is not None and not g.is_empty]
+    if shapes:
+        bx = [g.bounds for g in shapes]
+        bounds = [min(b[0] for b in bx), min(b[1] for b in bx), max(b[2] for b in bx), max(b[3] for b in bx)]
+    else:
+        bounds = None
     result = {
-        "n": n, "skipped": skipped,
+        "n": n, "skipped": skipped, "bounds": bounds,
+        "avg_img": [round(adv / 2 - cx * k0, 1), round(-base * k0, 1), round(W * k0, 1), round(H * k0, 1)],
         "avg_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(),
         "seed_svg": _svg(grown_u), "avg_svg": _svg(avg_u),
         "strokes": [s_.points for s_ in seed.strokes] if seed else [],
@@ -378,7 +391,12 @@ def _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, l
             write_font(path, f"{name} {label}", glyphs, upem, adv)
             fonts[label.lower()] = os.path.basename(path)
             log(f"wrote {path}")
+    # one frame for every glyph (font units, y up), so they compare at one scale
+    bs = [r["bounds"] for r in results.values() if r.get("bounds")]
+    extent = ([min(0.0, min(b[0] for b in bs)), min(b[1] for b in bs), max(float(adv), max(b[2] for b in bs)), max(b[3] for b in bs)]
+              if bs else [0.0, -0.25 * upem, float(adv), 0.8 * upem])
     summary = {"chars": results, "fonts": fonts, "advance": adv, "upem": upem, "set": fs["id"], "set_name": fs["name"],
+               "extent": [round(v, 1) for v in extent],
                "out": os.path.basename(out_dir),
                "pitch_mm": st["pitch_mm"], "estimated_pitch_mm": estimate_pitch_mm(project, fs["id"])}
     with open(os.path.join(out_dir, "result.json"), "w", encoding="utf-8") as f:
