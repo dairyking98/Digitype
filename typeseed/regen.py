@@ -59,7 +59,8 @@ def box_cells(project, box):
     remembered until the box, its text or the pitch changes."""
     page = project.page(box["page"])
     key = (project.root, box.get("id"), box["page"], round(box["x"], 2), round(box["y"], 2), round(box["w"], 2),
-           round(box["h"], 2), box.get("text"), box.get("baseline"), project.settings(box.get("set", 1))["pitch_mm"], page.get("dpi"))
+           round(box["h"], 2), box.get("text"), box.get("baseline"), project.settings(box.get("set", 1))["pitch_mm"], page.get("dpi"),
+           project.settings(box.get("set", 1)).get("baseline_mode", "adaptive"))
     hit = _CELL_CACHE.get(key)
     if hit is None:
         hit = _CELL_CACHE[key] = _box_cells(project, box)
@@ -159,15 +160,47 @@ def _box_cells(project, box):
             base = y + rows.max() + 1.0
         out.append({"char": c, "box": box.get("id"), "x": x + cx, "y": y, "w": cw, "h": h, "baseline": base,
                     "has_ink": bool(len(rows)), "thr": thr, "warn": warn})
-    known = [c["baseline"] for c in out if c["baseline"] is not None]
-    line = float(np.median(known)) if known else None
+    mode = project.settings(box.get("set", 1)).get("baseline_mode", "adaptive")
+    pts = [(c["x"] + c["w"] / 2, c["baseline"]) for c in out if c["baseline"] is not None]
     for c in out:
         c["auto"] = True
+        c["tilt"] = 0.0
         if box.get("baseline") is not None:
             c["baseline"], c["auto"] = float(box["baseline"]), False
-        elif c["baseline"] is None or (line is not None and n > 1):
-            c["baseline"] = line          # a run of text: one line, one baseline
+        elif pts and (c["baseline"] is None or n > 1):
+            # a run of text: the baseline follows the line - one straight
+            # (possibly tilted) line, or adaptive: a local fit over the
+            # letters nearby, for a line that waves or drifts
+            span = 8 * (c["w"] or 1) if mode == "adaptive" else None
+            c["baseline"], c["tilt"] = baseline_at(pts, c["x"] + c["w"] / 2, span)
     return out
+
+
+def _theil_sen(pts):
+    """Robust straight line through (x, y) points: the median of pairwise
+    slopes, then the median intercept - one bad letter can't tip it."""
+    xs, ys = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
+    if len(xs) < 2 or np.ptp(xs) < 1e-6:
+        return 0.0, float(np.median(ys))
+    i, j = np.triu_indices(len(xs), 1)
+    dx = xs[j] - xs[i]
+    ok = np.abs(dx) > 1e-6
+    slope = float(np.median((ys[j] - ys[i])[ok] / dx[ok])) if ok.any() else 0.0
+    return slope, float(np.median(ys - slope * xs))
+
+
+def baseline_at(pts, x, span=None, max_tilt=0.15):
+    """(baseline y, tilt in radians) at x, from (x, y) baseline points: a
+    robust line through all of them, or through those within `span` of x
+    (adaptive). With fewer than 3 points to go on: flat, at their median."""
+    near = pts if span is None else [p for p in pts if abs(p[0] - x) <= span]
+    if len(near) < 3:
+        near = sorted(pts, key=lambda p: abs(p[0] - x))[:max(3, len(near))]
+    if len(near) < 3:
+        return float(np.median([p[1] for p in near])), 0.0
+    slope, icpt = _theil_sen(near)
+    slope = float(np.clip(slope, -max_tilt, max_tilt))
+    return slope * x + icpt, float(np.arctan(slope))
 
 
 def all_cells(project, with_pages=False, sid=None):
@@ -188,8 +221,10 @@ def all_cells(project, with_pages=False, sid=None):
                     continue
                 ov = min(b["y"] + b["h"], o["y"] + o["h"]) - max(b["y"], o["y"])
                 if ov > 0.5 * min(b["h"], o["h"]):
-                    near += [x["baseline"] for x in oc if x["baseline"] is not None and not x.get("borrowed")]
-            c["baseline"] = float(np.median(near)) if near else None
+                    near += [(x["x"] + x["w"] / 2, x["baseline"]) for x in oc if x["baseline"] is not None and not x.get("borrowed")]
+            if near:
+                mode = project.settings(b.get("set", 1)).get("baseline_mode", "adaptive")
+                c["baseline"], c["tilt"] = baseline_at(near, c["x"] + c["w"] / 2, 8 * c["w"] if mode == "adaptive" else None)
             c["borrowed"] = True
     if with_pages:
         return per_box, {bid: b["page"] for bid, b in boxes.items()}
@@ -238,11 +273,27 @@ def _sample(project, cell, page, settings):
     lab, n = ndimage.label(ink, structure=np.ones((3, 3)))
     core_a = int(cell["x"] - x0c + 0.15 * w)
     core_b = int(cell["x"] - x0c + 0.85 * w)
-    keep = set(np.unique(lab[:, max(0, core_a):max(core_a + 1, core_b)])) - {0}
-    mask = np.isin(lab, list(keep))
+    cols = slice(max(0, core_a), max(core_a + 1, core_b))
+    # ...and reach the band just above this cell's own baseline, so a tall
+    # box can't pull in the line above or below. Marks that float above
+    # the line (' " ` ^ *) touch no band - for them, the columns alone.
+    br0 = int(round(cell["baseline"] - max(0, y0)))
+    band = slice(max(0, br0 - int(0.6 * w)), max(1, br0 + int(0.05 * w)))
+    keep = set(np.unique(lab[band, cols])) - {0}
+    if not keep:
+        keep = set(np.unique(lab[:, cols])) - {0}
+    mask = np.isin(lab, list(keep)).astype(np.float32)
     if not mask.any():
         return None
-    return mask.astype(np.float32), cell["baseline"] - max(0, y0), cx - x0c, {"box": cell.get("box"), "w": w}
+    br, bc = cell["baseline"] - max(0, y0), cx - x0c
+    t = float(cell.get("tilt") or 0.0)
+    if settings.get("tilt_correction", True) and abs(t) > 0.002:
+        # level the glyph: turn it about its baseline point by the line's tilt
+        cs, sn = np.cos(t), np.sin(t)
+        m = np.array([[cs, sn], [-sn, cs]])
+        ctr = np.array([br, bc])
+        mask = ndimage.affine_transform(mask, m, offset=ctr - m @ ctr, order=1)
+    return mask, br, bc, {"box": cell.get("box"), "w": w}
 
 
 def average(samples, pitch, max_shift_frac=0.12):

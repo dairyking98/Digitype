@@ -40,6 +40,7 @@ function showSettings(est) {
   $("set-pitch").value = s.pitch_mm; $("set-name").value = s.font_name; $("set-up").value = s.upsample;
   $("set-weight").value = s.weight; $("set-add").value = s.add;
   $("set-el").value = s.expand_left; $("set-er").value = s.expand_right;
+  $("set-bmode").value = s.baseline_mode || "adaptive"; $("set-tilt").checked = s.tilt_correction !== false;
   const pe = $("pitch-est");
   pe.innerHTML = "";
   if (est) {
@@ -58,6 +59,8 @@ function showSettings(est) {
     }
   }
 }
+$("set-bmode").addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { baseline_mode: e.target.value } }); afterChange(); });
+$("set-tilt").addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { tilt_correction: e.target.checked } }); });
 for (const [id, key] of [["set-el", "expand_left"], ["set-er", "expand_right"], ["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
   $(id).addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { [key]: e.target.value } }); });
 }
@@ -268,9 +271,10 @@ function draw() {
           ctx.fillText(c.char, c.x + c.w * 0.15, b.y + b.h + Math.min(c.w * 0.7, 14 / z));
           ctx.font = `${13 / z}px ui-monospace, monospace`;
         }
-        if (c.baseline != null) {
+        if (c.baseline != null) {               // drawn at its tilt
+          const dy = Math.tan(c.tilt || 0) * c.w / 2;
           ctx.strokeStyle = c.borrowed ? "rgba(255,107,107,.55)" : "#ff6b6b"; ctx.lineWidth = lw;
-          ctx.beginPath(); ctx.moveTo(c.x, c.baseline); ctx.lineTo(c.x + c.w, c.baseline); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(c.x, c.baseline - dy); ctx.lineTo(c.x + c.w, c.baseline + dy); ctx.stroke();
         }
       }
     }
@@ -506,6 +510,25 @@ $("sel-base-clear").onclick = async () => {
 };
 
 // ------------------------------------------------------------------ sources
+$("upload-btn").onclick = () => $("upload-input").click();
+$("upload-input").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  let added = 0;
+  for (const [i, f] of files.entries()) {
+    $("upload-status").textContent = `Uploading ${f.name} (${i + 1}/${files.length}, ${(f.size / 1e6).toFixed(1)} MB)…`;
+    try {
+      const r = await fetch(`/api/upload?name=${encodeURIComponent(f.name)}`, { method: "POST", body: f });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      const j = await r.json();
+      S.pages = j.pages; added += j.added;
+    } catch (err) { $("upload-status").textContent = `${f.name}: ${err.message}`; renderPages(); return; }
+  }
+  renderPages();
+  $("upload-status").textContent = `Added ${added} page${added === 1 ? "" : "s"} from ${files.length} file${files.length === 1 ? "" : "s"}.`;
+  const last = S.pages[S.pages.length - added];
+  if (last) openPage(last.id);
+});
 $("add-btn").onclick = async () => {
   const p = $("add-path").value.trim().replace(/^"|"$/g, "");
   if (!p) return;

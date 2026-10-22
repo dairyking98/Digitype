@@ -6,7 +6,7 @@ import os
 import threading
 import traceback
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -73,6 +73,16 @@ def make_app(project: Project):
         project.add_sources(paths)
         return {"pages": project.meta["pages"]}
 
+    @app.post("/api/upload")
+    async def upload(name: str, request: Request):
+        try:
+            path, n = project.add_upload(name, await request.body())
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(400, f"couldn't read {name}: {e}")
+        return {"pages": project.meta["pages"], "added": n, "path": path}
+
     @app.get("/api/page/{pid}/preview")
     def preview(pid: int):
         try:
@@ -114,7 +124,12 @@ def make_app(project: Project):
         s = project.settings()
         for k, v in body.items():
             if k in s:
-                s[k] = type(s[k])(v) if not isinstance(s[k], str) else str(v)
+                if isinstance(s[k], bool):
+                    s[k] = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+                elif isinstance(s[k], str):
+                    s[k] = str(v)
+                else:
+                    s[k] = type(s[k])(v)
         project.save()
         return s
 

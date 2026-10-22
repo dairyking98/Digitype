@@ -27,8 +27,11 @@
   <aside class="left">
     <h3>Pages</h3>
     <div id="pages"></div>
+    <button id="upload-btn" class="upload" title="Upload PDFs or images (TIFF, PNG, JPG, BMP) from this computer - they're copied into the project">Upload PDF / images…</button>
+    <input id="upload-input" type="file" multiple accept=".pdf,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.gif,.webp,application/pdf,image/*" hidden>
+    <div id="upload-status" class="muted small"></div>
     <details class="add">
-      <summary>Add samples…</summary>
+      <summary>Add from a path…</summary>
       <p class="muted">A file or folder path on this computer (images, multi-page TIFF, PDF).</p>
       <input id="add-path" placeholder="E:\Leonard\Typewriter\Typefaces\Type Samples\Peli">
       <button id="add-btn">Add</button>
@@ -87,6 +90,9 @@
           <input id="set-er" type="number" step="0.05" min="0"></label>
       </div>
       <div class="muted small">Ink outside its cell still counts when it's part of a stroke that reaches the cell's middle, so neighbours don't leak in.</div>
+      <label title="Adaptive: the baseline follows each line locally, for lines that wave or drift. Straight: one straight (possibly tilted) baseline per line.">Baseline
+        <select id="set-bmode"><option value="adaptive">Adaptive - follows waves and drift</option><option value="straight">Straight - one line per run</option></select></label>
+      <label class="inline" title="Turn each sample level by its line's tilt before averaging, so samples from crooked lines line up"><input type="checkbox" id="set-tilt"> Tilt correction</label>
       <label title="Font name for the exported .ttf files">Font name <input id="set-name"></label>
       <label title="How much the averaged sample is enlarged before the seed is taken - smoother curves, slower">Detail ×
         <input id="set-up" type="number" step="1" min="1" max="8"></label>

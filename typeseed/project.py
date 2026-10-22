@@ -21,7 +21,8 @@ IMAGE_EXT = {".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
 PDF_DPI = 600
 PREVIEW_MAX = 2400
 DEFAULT_SETTINGS = {"pitch_mm": 2.54, "upem": 1000, "advance": 600, "font_name": "", "upsample": 4,
-                    "weight": 1.0, "add": 0.0, "expand_left": 0.5, "expand_right": 0.5}
+                    "weight": 1.0, "add": 0.0, "expand_left": 0.5, "expand_right": 0.5,
+                    "baseline_mode": "adaptive", "tilt_correction": True}
 
 
 class Project:
@@ -113,6 +114,25 @@ class Project:
                 self.meta["pages"].append(page)
                 known.add(key)
         self.save()
+
+    def add_upload(self, name, data):
+        """A file uploaded through the page: kept in the project's uploads/
+        folder (never overwriting one there), then added like any source."""
+        d = os.path.join(self.root, "uploads")
+        os.makedirs(d, exist_ok=True)
+        base = "".join(c if c.isalnum() or c in "-_. ()" else "_" for c in os.path.basename(name)) or "upload"
+        stem, ext = os.path.splitext(base)
+        if ext.lower() not in IMAGE_EXT | {".pdf"}:
+            raise ValueError(f"not a sample file ({ext or 'no extension'}) - PDF or an image")
+        path, k = os.path.join(d, base), 1
+        while os.path.exists(path):
+            path = os.path.join(d, f"{stem} ({k}){ext}")
+            k += 1
+        with open(path, "wb") as f:
+            f.write(data)
+        before = len(self.meta["pages"])
+        self.add_sources([path])
+        return path, len(self.meta["pages"]) - before
 
     def page(self, pid):
         for p in self.meta["pages"]:

@@ -46,10 +46,12 @@ run.bat "E:\Leonard\Typewriter\Typefaces\Type Samples\Peli"      (Windows; first
 ```
 
 Opens a local page (http://127.0.0.1:8770). Every image, multi-page TIFF frame and PDF page
-is a page. Drag a box round a glyph and type it; type a whole run (spaces included) to split a
+is a page; **Upload PDF / images…** copies files into the project from the browser. Drag a box round a glyph and type it; type a whole run (spaces included) to split a
 line into fixed-pitch cells at the project's pitch. The page warns when the text can't match
-the ink (a missing or extra space). Baselines are automatic (letters that sit on the line give
-it; g j p , ( ... borrow it from their line); drag the red line to set one by hand.
+the ink (a missing or extra space). Baselines are automatic: letters that sit on the line give
+it, g j p , ( ... borrow it. **Adaptive** (default) fits the baseline locally along each line, so
+skewed or wavy lines are followed; **Straight** fits one tilted line per run. **Tilt correction**
+turns each sample level by its line's tilt before averaging. Shift+drag the red line to set one by hand.
 
 **Font sets:** a project can hold several typefaces (the Peli scans are a different Olympia face per
 page). Pick the set in the top bar, **+ New font** starts another; boxes, pitch and font name are
