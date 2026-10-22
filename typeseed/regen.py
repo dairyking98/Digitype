@@ -683,7 +683,15 @@ def write_font(path, family, glyphs, upem, advance):
     fb.setupHorizontalMetrics(metrics)
     asc, desc = int(max(ymax, upem * 0.75)), int(min(ymin, -upem * 0.25))
     fb.setupHorizontalHeader(ascent=asc, descent=desc)
-    fb.setupNameTable({"familyName": family, "styleName": "Regular"})
+    # Windows' installer wants the full set: family, style, unique id, full
+    # name, version and an ASCII PostScript name without spaces
+    import re
+    import time as _time
+    ps = re.sub(r"[^A-Za-z0-9-]", "", family.replace(" ", "-"))[:58] or "TypeSeed"
+    fb.setupNameTable({"familyName": family, "styleName": "Regular",
+                       "uniqueFontIdentifier": f"TypeSeed: {family}: {_time.strftime('%Y-%m-%d %H:%M')}",
+                       "fullName": f"{family} Regular", "version": "Version 1.000",
+                       "psName": f"{ps}-Regular"})
     from fontTools.ttLib.tables.O_S_2f_2 import Panose
     pan = Panose()
     for k in ("bFamilyType", "bSerifStyle", "bWeight", "bProportion", "bContrast", "bStrokeVariation",
