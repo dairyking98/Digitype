@@ -543,6 +543,16 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     # (col, row) -> x = (col - cx) * k0 + adv/2, y = (row - base) * k0
     k0 = adv / p
     H, W = prob.shape
+    # placement: as typed (where the glyph sat in its typewriter cell), or
+    # centred - the ink's middle (traced outline) on the middle of the cell
+    dx = 0.0
+    ref = avg_u if avg_u is not None and not avg_u.is_empty else grown_u
+    if st.get("placement") == "center" and ref is not None and not ref.is_empty:
+        b0 = ref.bounds
+        dx = adv / 2 - (b0[0] + b0[2]) / 2
+        from shapely.affinity import translate
+        avg_u = translate(avg_u, dx) if avg_u is not None else None
+        grown_u = translate(grown_u, dx) if grown_u is not None else None
     shapes = [g for g in (grown_u, avg_u) if g is not None and not g.is_empty]
     if shapes:
         bx = [g.bounds for g in shapes]
@@ -551,10 +561,11 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
         bounds = None
     result = {
         "n": n, "skipped": skipped, "bounds": bounds, "odd": odd,
-        "avg_img": [round(adv / 2 - cx * k0, 1), round(-base * k0, 1), round(W * k0, 1), round(H * k0, 1)],
+        "avg_img": [round(adv / 2 - cx * k0 + dx, 1), round(-base * k0, 1), round(W * k0, 1), round(H * k0, 1)],
         "avg_png": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(),
         "seed_svg": _svg(grown_u), "avg_svg": _svg(avg_u),
-        "strokes": [s_.points for s_ in seed.strokes] if seed else [],
+        "strokes": [[(x + dx, y) for x, y in s_.points] for s_ in seed.strokes] if seed else [],
+        "shift": round(dx, 1),
         "iou": round(G.iou(grown_u, avg_u), 3) if grown_u is not None and avg_u is not None else None,
     }
     if seed_error:

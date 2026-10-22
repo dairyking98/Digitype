@@ -87,5 +87,5 @@ button.small { padding: 2px 8px; font-size: 11px; }
 .tt-lab { color: var(--text-3); font-size: 11px; text-align: right; }
 .tt-sample { background: #fff; color: #000; border-radius: 6px; padding: 6px 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.25; min-height: 1.4em; }
 .upload { width: 100%; margin-top: 12px; }
-#set-bmode { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; width: 100%; margin-top: 3px; }
+#set-bmode, #set-place { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; width: 100%; margin-top: 3px; }
 #sel-set { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; width: 100%; margin-top: 3px; }

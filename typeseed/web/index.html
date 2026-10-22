@@ -95,6 +95,8 @@
       <label title="Adaptive: the baseline follows each line locally, for lines that wave or drift. Straight: one straight (possibly tilted) baseline per line.">Baseline
         <select id="set-bmode"><option value="adaptive">Adaptive - follows waves and drift</option><option value="straight">Straight - one line per run</option></select></label>
       <label class="inline" title="Turn each sample level by its line's tilt before averaging, so samples from crooked lines line up"><input type="checkbox" id="set-tilt"> Tilt correction</label>
+      <label title="As typed: each glyph keeps its place in its typewriter cell. Centred: each glyph's ink is centred in the cell.">Placement
+        <select id="set-place"><option value="typed">As typed - where it sat in its cell</option><option value="center">Centred in the cell</option></select></label>
       <label title="Font name for the exported .ttf files">Font name <input id="set-name"></label>
       <label title="How much the averaged sample is enlarged before the seed is taken - smoother curves, slower">Detail ×
         <input id="set-up" type="number" step="1" min="1" max="8"></label>
