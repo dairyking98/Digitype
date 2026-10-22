@@ -85,6 +85,43 @@ def face_metrics(result):
     return {"cap": tops(CAPS) or tops("ABDGOPRSUVWXY"), "x": tops(SMALL) or tops("aceos")}
 
 
+def stroke_px(mask):
+    """Typical stroke thickness of a black-and-white glyph, px: twice the
+    median distance to the edge along its centre lines."""
+    from scipy import ndimage
+    from skimage.morphology import skeletonize
+    if mask.sum() < 20:
+        return None
+    dt = ndimage.distance_transform_edt(np.pad(mask, 1))[1:-1, 1:-1]
+    sk = skeletonize(mask)
+    v = dt[sk]
+    return float(2 * np.median(v)) if len(v) >= 5 else None
+
+
+STEMS = "lHIinmhuEFTLtrkd"       # plain strokes: the face's stroke weight
+
+
+def face_stroke(result):
+    """The face's stroke thickness in font units, from the averaged scans
+    of its plainest letters (median over them), or None."""
+    import base64
+    import io
+    chars = (result or {}).get("chars", {})
+    found = []
+    for c in STEMS + "".join(sorted(chars)):
+        g = chars.get(c) or {}
+        if g.get("image") or not g.get("avg_png") or not g.get("avg_img"):
+            continue
+        im = Image.open(io.BytesIO(base64.b64decode(g["avg_png"].split(",", 1)[1])))
+        a = np.asarray(im.convert("RGBA"))[..., 3] >= 128
+        w = stroke_px(a)
+        if w:
+            found.append(w * g["avg_img"][2] / a.shape[1])     # px -> font units
+        if len(found) >= 8:
+            break
+    return float(np.median(found)) if found else None
+
+
 def auto_place(ink, ch, result, advance, upem):
     """-> placement {x, y, s} and how it was found ('average' or 'reference')."""
     bb = ink_bbox(ink)
@@ -98,18 +135,29 @@ def auto_place(ink, ch, result, advance, upem):
         how = "average"
     else:
         rb, radv, rcap = _ref_bounds(ch)
-        cap = face_metrics(result)["cap"] or upem * 0.66
+        fm = face_metrics(result)
+        cap = fm["cap"] or upem * 0.66
         k = cap / rcap
-        if rb is None:                       # not in the reference font: a capital's box
-            rb = (radv * 0.12, 0, radv * 0.88, rcap)
-        # the reference glyph's box, scaled to this face and kept where it sits in its cell
         mid = advance / 2.0
-        tx0, tx1 = mid + (rb[0] - radv / 2.0) * k, mid + (rb[2] - radv / 2.0) * k
-        ty0, ty1 = rb[1] * k, rb[3] * k
+        if rb is None:                       # unknown character: centred on the x-height
+            xh = fm["x"] or cap * 0.68
+            tx0, tx1, ty0, ty1 = mid, mid, xh / 2.0, xh / 2.0
+        else:                                # the reference glyph's box, scaled to this face
+            tx0, tx1 = mid + (rb[0] - radv / 2.0) * k, mid + (rb[2] - radv / 2.0) * k
+            ty0, ty1 = rb[1] * k, rb[3] * k
         how = "reference"
-    tw, th = max(1e-6, tx1 - tx0), max(1e-6, ty1 - ty0)
-    # size by height, unless the glyph is a flat one (dash, equals, underscore)
-    s = th / ih if th >= 0.3 * tw else tw / iw
+    tw, th = tx1 - tx0, ty1 - ty0
+    # size by height - unless the glyph is small or flat (an accent, a dash,
+    # an underscore) or unknown: there the box says little, so match the
+    # picture's stroke thickness to the face's
+    small = th < 0.4 * (face_metrics(result)["cap"] or upem * 0.66) or th < 0.3 * tw
+    s = None
+    if how != "average" and (small or th <= 0):
+        fw, iws = face_stroke(result), stroke_px(ink >= 0.5)
+        if fw and iws:
+            s = fw / iws
+    if s is None:
+        s = th / ih if th >= 0.3 * tw else tw / iw
     cx, cy = (tx0 + tx1) / 2.0, (ty0 + ty1) / 2.0
     x = cx - (c0 + iw / 2.0) * s
     y = cy + (r0 + ih / 2.0) * s
