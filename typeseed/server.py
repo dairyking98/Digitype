@@ -147,5 +147,14 @@ def make_app(project: Project):
             raise HTTPException(404, "not built yet")
         return FileResponse(p, filename=os.path.basename(p))
 
+    @app.middleware("http")
+    async def no_stale_page(request, call_next):
+        # the page's own files are re-checked on every load, so an update
+        # shows up on a plain reload instead of needing Ctrl+F5
+        resp = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
     return app
