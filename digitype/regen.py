@@ -91,18 +91,27 @@ def _box_cells(project, box):
         settings = project.settings(box.get("set", 1))
         p_set = pitch_px(project, page, settings)
         own = w / n
+        pitch_note = ""
         if abs(own / p_set - 1) < 0.08:
             cw, spread = p_set, 0.02
         else:
             cw, spread = own, 0.06
-            warn = (f"{n} characters in this box make a pitch of {own / (page.get('dpi') or 600) * 25.4:.2f} mm, "
-                    f"but this font's pitch is {settings['pitch_mm']} mm - check the text "
-                    f"(a missing or extra space?) or the pitch setting")
+            if page.get("dpi"):            # a page without a dpi has no millimetres to compare
+                pitch_note = (f"{n} characters in this box make a pitch of {own / page['dpi'] * 25.4:.2f} mm, "
+                              f"but this font's pitch is {settings['pitch_mm']} mm - check the text "
+                              f"(a missing or extra space?) or the pitch setting")
         # where do the cell boundaries go? Between letters (little ink on
         # the boundary columns), with the text's spaces on blank paper -
         # the spaces are what tell "glyph in this cell" from "glyph in the
         # next one" when a table has a space after every letter
         prof = ndimage.uniform_filter1d(ink.sum(axis=0).astype(float), 3)
+        # the row's own rhythm: glyph columns repeat every pitch, so the
+        # autocorrelation of the column profile peaks there - accurate even
+        # when letters touch and there are no spaces to go by, where a small
+        # pitch error would add up to a whole cell by the end of the line
+        rp = _rhythm_pitch(prof, cw)
+        if rp is not None:
+            cw, spread = rp, 0.012
         cum = np.concatenate([[0], np.cumsum(prof)])
         spaces = [i for i, c in enumerate(chars) if c.isspace()]
         letters = [i for i, c in enumerate(chars) if not c.isspace()]
@@ -113,28 +122,56 @@ def _box_cells(project, box):
             return cum[b] - cum[a]
 
         best = (float("inf"), 0.0, cw)
+        best_b = (float("inf"), 0.0, cw)          # boundaries in the gaps only - for the text fit below
         for p in np.linspace(cw * (1 - spread), cw * (1 + spread), 21):
             for o in np.linspace(-0.6 * p, 0.6 * p, 49):
                 xs = (o + p * np.arange(n + 1)).round().astype(int)
                 xs = xs[(xs >= 0) & (xs < len(prof))]
                 score = prof[xs].sum() if len(xs) else 0.0
+                gx = (o + p * np.arange(int((w - o) // p) + 2)).round().astype(int)
+                gx = gx[(gx >= 0) & (gx < len(prof))]
+                gscore = prof[gx].mean() if len(gx) else 0.0
+                if gscore < best_b[0]:
+                    best_b = (gscore, o, p)
                 score += sum(inside(i, o, p) for i in spaces)                       # ink where a space should be
                 score += sum(prof.max() * 3 for i in letters if inside(i, o, p) == 0 and chars[i] not in ".,'`´·")
                 if score < best[0]:
                     best = (score, o, p)
         _, o, p = best
         cells = [(c, o + i * p, p) for i, c in enumerate(chars)]
+        # fit the text to the glyphs actually on the grid: each character in
+        # order onto a cell, letters onto ink, allowing an extra blank cell
+        # where the typist left a gap or one fewer where the label has an
+        # extra space - one missing space would otherwise put every cell
+        # after it one letter off
+        _, ob, pb = best_b
+        # glyphs first: find each glyph from the gaps in the ink and match
+        # the text to them in order - follows rows whose spacing changes
+        # along the line (set or pasted rather than typed in one go); the
+        # even grid is the fallback when the glyphs can't be told apart
+        fitted, fixes = _fit_text_to_glyphs(chars, prof, pb, w)
+        if fitted is None:
+            fitted, fixes = _fit_text_to_grid(chars, prof, ob, pb, w)
+        if fitted is not None:
+            o, p = ob, pb
+        fit_note = ""
+        if fitted is not None:
+            cells = fitted
+            if fixes:
+                fit_note = ("spacing adjusted to match the ink: " + "; ".join(fixes[:4]) + ("…" if len(fixes) > 4 else "")
+                        + " - fix the text if it's wrong")
         # the ink, first inked column to last, spans the trimmed text: between
         # (n - 1) cells and n cells (the last glyph is narrower than a cell)
         cols = np.nonzero(ink.any(axis=0))[0]
         n_trim = len(text.strip())
-        if not warn and len(cols) and n_trim > 1:
+        if fitted is None and len(cols) and n_trim > 1:
             span = (cols.max() - cols.min() + 1) / p
             if span > n_trim + 0.15 or span < n_trim - 1.05:
                 warn = (f"the ink spans about {span:.1f} cells but the text has {n_trim} characters "
                         f"(not counting spaces at the ends) - check for a missing or extra space")
-        # spaces should land on blank paper and letters on ink
-        if not warn:
+        # spaces should land on blank paper and letters on ink - the most
+        # useful check, as it says where (the text fit above already did it)
+        if fitted is None:
             colink = ink.sum(axis=0)
             full = np.median([colink[int(max(0, o + i * p)):int(min(w, o + (i + 1) * p))].sum()
                               for i, c in enumerate(chars) if not c.isspace()] or [1])
@@ -148,6 +185,10 @@ def _box_cells(project, box):
                 i = bad[0]
                 warn = (f"{len(bad)} cells don't match the text (spaces over ink, or letters over blank paper), "
                         f"starting near \"{text[max(0, i - 6):i + 6]}\" - a missing or extra character before there?")
+        if not warn:
+            warn = pitch_note
+        if fitted is not None:                 # say what the fit had to change; nothing else to report
+            warn = fit_note
     # a cell that clearly missed its glyph (a chart whose glyphs are grouped,
     # not evenly spaced) snaps onto the nearest glyph; small offsets stay -
     # they are the face's own placement in its cell
@@ -175,10 +216,13 @@ def _box_cells(project, box):
         if c.isspace():
             continue
         snapped = False
-        if blobs and core_ink.get(cx, 0) < 0.35 * core_full and c not in ".,'`´·:;-_":   # the cell missed its glyph
+        if blobs and core_ink.get(cx, 0) < 0.12 * core_full and c not in ".,'`´·:;-_":   # the cell missed its glyph
             cc = cx + cw / 2
             near = min(blobs, key=lambda bc: abs(bc - cc))
-            if 0.25 * cw < abs(near - cc) < 0.75 * cw:
+            # ...and the glyph is nearer this cell than any other (in a
+            # dense row it belongs to the neighbour)
+            closest = min((ox + ow / 2 for oc, ox, ow in cells if not oc.isspace()), key=lambda m: abs(m - near))
+            if 0.25 * cw < abs(near - cc) < 0.75 * cw and abs(closest - cc) < 1e-6:
                 cx += near - cc
                 snapped = True
         a, b = int(max(0, cx)), int(min(w, cx + cw))
@@ -204,6 +248,188 @@ def _box_cells(project, box):
             span = 8 * (c["w"] or 1) if mode == "adaptive" else None
             c["baseline"], c["tilt"] = baseline_at(pts, c["x"] + c["w"] / 2, span)
     return out
+
+
+LIGHT_CHARS = set(".,'`´·:;-_\"")
+
+
+def _glyph_blobs(prof, p):
+    """Where the glyphs are along a row: runs of inked columns, with runs a
+    hair apart joined (the two ticks of a quote) and runs clearly wider
+    than a letter split at their thinnest columns. -> [(centre, weight)]"""
+    if prof.max() <= 0:
+        return []
+    on = prof > 0.04 * prof.max()
+    runs, a = [], None
+    for i, v in enumerate(np.concatenate([on, [False]])):
+        if v and a is None:
+            a = i
+        elif not v and a is not None:
+            runs.append([a, i])
+            a = None
+    merged = []
+    for r in runs:
+        if merged and r[0] - merged[-1][1] < 0.12 * p and r[1] - merged[-1][0] <= 1.15 * p:
+            merged[-1][1] = r[1]
+        else:
+            merged.append(list(r))
+    blobs = []
+    for a, b in merged:
+        wdt = b - a
+        k = int(round(wdt / p)) if wdt > 1.4 * p else 1
+        cuts = [a]
+        for i in range(1, k):
+            guess = a + i * wdt / k
+            lo, hi = int(guess - 0.25 * p), int(guess + 0.25 * p)
+            lo, hi = max(lo, cuts[-1] + 1), min(hi, b - 1)
+            cuts.append(lo + int(np.argmin(prof[lo:hi])) if hi > lo else int(guess))
+        cuts.append(b)
+        for x0, x1 in zip(cuts[:-1], cuts[1:]):
+            if x1 - x0 >= 2:
+                blobs.append(((x0 + x1) / 2, float(prof[x0:x1].sum())))
+    return blobs
+
+
+def _fit_text_to_glyphs(chars, prof, p, w, c_gap=1.0, c_skip=1.5, c_miss=3.0):
+    """Match the text's characters, in order, to the glyphs found along the
+    row (dynamic programming): each letter takes one glyph, centred on it;
+    a glyph no letter takes costs c_skip (by its weight), a letter with no
+    glyph c_miss, and spacing unlike the text's c_gap per cell of
+    difference. -> (cells, notes) or (None, []) when it doesn't fit."""
+    blobs = _glyph_blobs(prof, p)
+    letters = [i for i, c in enumerate(chars) if not c.isspace()]
+    L, B = len(letters), len(blobs)
+    if not L or B < 0.7 * L or B > 1.5 * L + 2:
+        return None, []
+    wmed = np.median([b[1] for b in blobs]) or 1.0
+    skip = [min(1.0, b[1] / wmed) * c_skip for b in blobs]
+    INF = float("inf")
+    # state: letter k matched to glyph j (or j = -1 = no glyph, position unknown)
+    cost = np.full((L, B), INF)
+    back = np.full((L, B), -1)
+    pre = np.concatenate([[0], np.cumsum(skip)])
+    for j in range(B):
+        cost[0, j] = pre[j]
+    for k in range(1, L):
+        want = letters[k] - letters[k - 1]             # cells between the two letters, as the text says
+        for j in range(k, B):
+            best, arg = INF, -1
+            for jp in range(max(k - 1, j - want - 3), j):
+                if cost[k - 1, jp] == INF:
+                    continue
+                d = (blobs[j][0] - blobs[jp][0]) / p
+                v = cost[k - 1, jp] + (pre[j] - pre[jp + 1]) + c_gap * min(3.0, abs(d - want))
+                if v < best:
+                    best, arg = v, jp
+            cost[k, j] = best
+            back[k, j] = arg
+    end = [cost[L - 1, j] + (pre[B] - pre[j + 1]) for j in range(B)]
+    j = int(np.argmin(end))
+    if end[j] == INF or end[j] > c_miss * L * 0.35:
+        return None, []
+    at = [0] * L
+    for k in range(L - 1, -1, -1):
+        at[k] = j
+        j = back[k, j]
+    fixes, cells = [], []
+    for k, i in enumerate(letters):
+        cells.append((chars[i], blobs[at[k]][0] - p / 2, p))
+        if k + 1 < L:
+            d = round((blobs[at[k + 1]][0] - blobs[at[k]][0]) / p) - (letters[k + 1] - i)
+            if d:
+                ctx = "".join(chars[max(0, i - 3):i + 1]).strip()
+                fixes.append(f"{'+' if d > 0 else ''}{d} space{'s' if abs(d) > 1 else ''} after \"{ctx}\"")
+            for sidx in range(1, letters[k + 1] - i):    # the text's own spaces, spread between
+                x = blobs[at[k]][0] + (blobs[at[k + 1]][0] - blobs[at[k]][0]) * sidx / (letters[k + 1] - i)
+                cells.append((chars[i + sidx], x - p / 2, p))
+    return cells, fixes
+
+
+def _fit_text_to_grid(chars, prof, o, p, w, a_blank=3.0, b_skip=3.0, c_gap=0.6):
+    """Place the text's characters on the cells of the grid (offset o,
+    pitch p): dynamic programming over (character, cell), in order. Costs:
+    a letter on blank paper (a_blank), an inked cell no character takes
+    (b_skip), and each cell more or fewer between two characters than the
+    text's spaces say (c_gap). -> ([(char, x, width)] for every character,
+    spaces placed between, [notes on adjusted spacing]) or (None, [])."""
+    ncell = int((w - o) // p) + 1
+    if ncell < 2:
+        return None, []
+    cum = np.concatenate([[0], np.cumsum(prof)])
+    def core(j):
+        a = int(np.clip(o + (j + 0.25) * p, 0, len(prof)))
+        b = int(np.clip(o + (j + 0.75) * p, 0, len(prof)))
+        return cum[b] - cum[a]
+    ink = np.array([core(j) for j in range(ncell)], float)
+    full = np.median(ink[ink > 0.2 * ink.max()]) if (ink > 0).any() else 1.0
+    ink = np.clip(ink / (full or 1.0), 0, 1)
+    letters = [i for i, c in enumerate(chars) if not c.isspace()]
+    if not letters or len(letters) > ncell:
+        return None, []
+    gaps = [letters[k + 1] - letters[k] - 1 for k in range(len(letters) - 1)]     # spaces the text puts between
+    L, INF = len(letters), float("inf")
+    place = lambda k, j: (a_blank * (0.3 if chars[letters[k]] in LIGHT_CHARS else 1.0)) * (1 - ink[j])
+    skipc = np.concatenate([[0], np.cumsum(ink * b_skip)])                         # cost of leaving cells i..j-1 empty
+    cost = np.full((L, ncell), INF)
+    back = np.zeros((L, ncell), int)
+    for j in range(ncell):
+        cost[0, j] = skipc[j] + place(0, j)
+    for k in range(1, L):
+        g = gaps[k - 1]
+        for j in range(k, ncell):
+            best, arg = INF, -1
+            for jp in range(max(k - 1, j - g - 4), j):
+                if cost[k - 1, jp] == INF:
+                    continue
+                v = cost[k - 1, jp] + (skipc[j] - skipc[jp + 1]) + c_gap * abs((j - jp - 1) - g)
+                if v < best:
+                    best, arg = v, jp
+            if arg >= 0:
+                cost[k, j] = best + place(k, j)
+                back[k, j] = arg
+    end = [cost[L - 1, j] + (skipc[ncell] - skipc[j + 1]) for j in range(ncell)]
+    j = int(np.argmin(end))
+    if end[j] == INF:
+        return None, []
+    at = [0] * L
+    for k in range(L - 1, -1, -1):
+        at[k] = j
+        j = back[k, j]
+    fixes = []
+    for k in range(L - 1):
+        d = (at[k + 1] - at[k] - 1) - gaps[k]
+        if d:
+            ctx = "".join(chars[max(0, letters[k] - 3):letters[k] + 1]).strip()
+            fixes.append(f"{'+' if d > 0 else ''}{d} space{'s' if abs(d) > 1 else ''} after \"{ctx}\"")
+    out = []
+    for k, i in enumerate(letters):
+        out.append((chars[i], o + at[k] * p, p))
+        if k + 1 < L:                                  # the text's spaces between, for completeness
+            for sidx in range(1, letters[k + 1] - i):
+                out.append((chars[i + sidx], o + (at[k] + min(sidx, max(1, at[k + 1] - at[k] - 1))) * p, p))
+    return out, fixes
+
+
+def _rhythm_pitch(prof, guess, rng=0.12):
+    """The pitch at which the column profile repeats, near `guess` (+-12%),
+    from its autocorrelation, refined between samples; None when the row
+    shows no clear rhythm."""
+    x = prof - prof.mean()
+    n = len(x)
+    lo, hi = int(guess * (1 - rng)), int(np.ceil(guess * (1 + rng)))
+    if hi + 2 >= n // 2 or lo < 3:
+        return None
+    f = np.fft.rfft(x, 2 * n)
+    ac = np.fft.irfft(f * np.conj(f))[:n]
+    if ac[0] <= 0:
+        return None
+    seg = ac[lo:hi + 1]
+    k = int(np.argmax(seg)) + lo
+    if ac[k] / ac[0] < 0.15 or k in (lo, hi):
+        return None
+    a, b, c = ac[k - 1], ac[k], ac[k + 1]
+    den = a - 2 * b + c
+    return float(k + (0.5 * (a - c) / den if den else 0.0))
 
 
 def _theil_sen(pts):
@@ -328,7 +554,7 @@ def _sample(project, cell, page, settings):
     u = float(cell.get("unit") or w)
     br0 = cell["baseline"] - max(0, y0)
     cell_a, cell_b = cell["x"] - x0c, cell["x"] - x0c + w
-    keep, floating = set(), set()
+    keep, floating, loose = set(), set(), set()
     if n:
         idx = np.arange(1, n + 1)
         cents = ndimage.center_of_mass(ink, lab, idx)
@@ -347,6 +573,10 @@ def _sample(project, cell, page, settings):
                   and sl[0].stop - sl[0].start <= 0.6 * u and sl[1].stop - sl[1].start <= 0.7 * u
                   and sl[0].start > 0 and sl[0].stop < ink.shape[0]):
                 floating.add(k)                # small, whole and above the line: maybe a dot or an accent
+            if (inside and br0 - 1.6 * u <= cr <= br0 - 0.1 * u
+                    and sl[0].stop - sl[0].start <= 1.0 * u and sl[1].stop - sl[1].start <= 0.9 * u
+                    and sl[0].start > 0 and sl[0].stop < ink.shape[0]):
+                loose.add(k)                   # for a glyph that is only marks (' " ` ^): a little larger
             elif sl[1].stop - sl[1].start > 1.6 * u and reaches_band and sl[1].start < cell_b and sl[1].stop > cell_a:
                 keep.add(k)                    # letters run together into one piece: trimmed to the cell below
     if keep:
@@ -362,9 +592,33 @@ def _sample(project, cell, page, settings):
             ccol = cents[k - 1][1]
             if not (bx0 - 0.15 * u <= ccol <= bx1 + 0.15 * u) or btop - sl[0].stop > 0.6 * u:
                 floating.discard(k)
-    keep |= floating                           # with no body at all (' " ` ^), the floating marks are the glyph
+    if not keep:
+        floating = loose                       # no body at all (' " ` ^): the marks are the glyph
+    keep |= floating
     wide = {k for k in keep if objs[k - 1][1].stop - objs[k - 1][1].start > 1.25 * u}
     mask = np.isin(lab, list(keep)).astype(np.float32)
+    # letters touching: a piece that reaches into the next cell's middle
+    # carries part of that letter - cut it at the thinnest column near the
+    # cell's edge (W's overhang doesn't reach that far, a neighbour does)
+    for k in keep:
+        sl = objs[k - 1]
+        piece = lab == k
+        colsum = piece.sum(axis=0)
+        for side in ("right", "left"):
+            edge = cell_b if side == "right" else cell_a
+            beyond = edge + 0.3 * u if side == "right" else edge - 0.3 * u
+            reach = sl[1].stop > beyond if side == "right" else sl[1].start < beyond
+            if not reach:
+                continue
+            a = int(max(0, edge - 0.2 * u)) if side == "right" else int(max(0, edge - 0.3 * u))
+            b = int(min(len(colsum), edge + 0.3 * u)) if side == "right" else int(min(len(colsum), edge + 0.2 * u))
+            if b <= a:
+                continue
+            cut = a + int(np.argmin(colsum[a:b]))
+            if side == "right":
+                mask[:, cut:][piece[:, cut:]] = 0
+            else:
+                mask[:, :cut + 1][piece[:, :cut + 1]] = 0
     if wide:                                   # a piece wider than a letter is two letters touching:
         lo, hi = int(max(0, cell_a - 0.15 * u)), int(cell_b + 0.15 * u)   # keep only this cell's part
         trim = np.isin(lab, list(wide))
