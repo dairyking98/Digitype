@@ -8,19 +8,29 @@ const api = async (url, opts = {}) => {
   return r.json();
 };
 
-const S = { pages: [], boxes: [], settings: {}, page: null, img: null, imgScale: 1, hi: null,
+const S = { pages: [], boxes: [], allBoxes: [], sets: [], activeSet: 1, settings: {}, page: null, img: null, imgScale: 1, hi: null,
   zoom: 1, panX: 0, panY: 0, sel: null, drag: null, draft: null, space: false, editing: null, jump: {} };
 const cv = $("cv"), ctx = cv.getContext("2d");
 const dpr = () => window.devicePixelRatio || 1;
 
 // ------------------------------------------------------------------ data
-async function load() {
-  const p = await api("/api/project");
-  Object.assign(S, { pages: p.pages, boxes: p.boxes, settings: p.settings });
+function applyState(p) {
+  Object.assign(S, { pages: p.pages, settings: p.settings, sets: p.sets, activeSet: p.active_set });
+  setBoxes(p.boxes);
   $("root").textContent = p.root;
   showSettings(p.estimated_pitch_mm);
-  renderPages();
-  renderGlyphs();
+  renderSets(); renderPages(); renderGlyphs(); draw();
+}
+// S.boxes: the font set being labelled; S.allBoxes: every set's (others drawn dimmed)
+function setBoxes(all) {
+  S.allBoxes = all;
+  S.boxes = all.filter((b) => (b.set ?? 1) === S.activeSet);
+  if (S.sel && !S.boxes.some((b) => b.id === S.sel)) { S.sel = null; showSel(); }
+}
+
+async function load() {
+  const p = await api("/api/project");
+  applyState(p);
   const last = Number(localStorage.getItem("ts.page"));
   if (S.pages.length) openPage(S.pages.find((x) => x.id === last) ? last : S.pages[0].id);
 }
@@ -34,6 +44,49 @@ function showSettings(est) {
 for (const [id, key] of [["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
   $(id).addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { [key]: e.target.value } }); });
 }
+
+function renderSets() {
+  const sel = $("set-pick");
+  sel.innerHTML = "";
+  for (const st of S.sets) {
+    const n = S.allBoxes.filter((b) => (b.set ?? 1) === st.id).length;
+    const o = document.createElement("option");
+    o.value = st.id; o.textContent = `${st.name} (${n} box${n === 1 ? "" : "es"})`;
+    o.selected = st.id === S.activeSet;
+    sel.appendChild(o);
+  }
+  $("set-del").disabled = S.sets.length < 2 || S.boxes.length > 0;
+}
+$("set-pick").onchange = async (e) => {
+  applyState(await api(`/api/sets/${e.target.value}`, { method: "POST", body: { activate: true } }));
+  $("result-grid").innerHTML = ""; $("result-head").innerHTML = "";
+};
+let nameMode = null;
+function askSetName(mode) {
+  nameMode = mode;
+  const inp = $("set-name-input");
+  inp.hidden = false;
+  inp.value = mode === "rename" ? (S.sets.find((s) => s.id === S.activeSet)?.name || "") : "";
+  inp.placeholder = mode === "rename" ? "New name, Enter" : "Name of the new font, Enter";
+  inp.focus(); inp.select();
+}
+$("set-new").onclick = () => askSetName("new");
+$("set-rename").onclick = () => askSetName("rename");
+$("set-name-input").addEventListener("keydown", async (e) => {
+  e.stopPropagation();
+  if (e.key === "Escape") { e.target.hidden = true; return; }
+  if (e.key !== "Enter") return;
+  const name = e.target.value.trim();
+  e.target.hidden = true;
+  if (nameMode === "new") applyState(await api("/api/sets", { method: "POST", body: { name } }));
+  else if (name) applyState(await api(`/api/sets/${S.activeSet}`, { method: "POST", body: { name } }));
+  $("result-grid").innerHTML = ""; $("result-head").innerHTML = "";
+  $("log").textContent = nameMode === "new" ? `New font set "${name || "untitled"}" - the boxes you draw now belong to it. Set its pitch below.` : "";
+});
+$("set-del").onclick = async () => {
+  try { applyState(await api(`/api/sets/${S.activeSet}`, { method: "DELETE" })); }
+  catch (e) { $("log").textContent = e.message; }
+};
 
 function renderPages() {
   const el = $("pages");
@@ -159,6 +212,13 @@ function draw() {
   if (S.hi) ctx.drawImage(S.hi.img, S.hi.x, S.hi.y, S.hi.w, S.hi.h);
   const lw = 1.5 / z;
   ctx.font = `${13 / z}px ui-monospace, monospace`;
+  ctx.setLineDash([4 / z, 4 / z]);
+  for (const b of S.allBoxes) {                  // other font sets: shown, not editable
+    if (b.page !== S.page.id || (b.set ?? 1) === S.activeSet) continue;
+    ctx.strokeStyle = "rgba(160,160,160,.55)"; ctx.lineWidth = lw;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+  }
+  ctx.setLineDash([]);
   for (const b of pageBoxes()) {
     const on = b.id === S.sel;
     const warn = (b.cells || []).find((c) => c.warn);
@@ -319,14 +379,14 @@ input.addEventListener("keydown", async (e) => {
   if (!text) { S.draft = null; draw(); return; }
   if (box.id) { box.text = text; await saveBox(box); }
   else {
-    const saved = await api("/api/box", { method: "POST", body: { page: S.page.id, ...norm(box), text } });
-    S.boxes.push(saved); S.draft = null; S.sel = saved.id;
+    const saved = await api("/api/box", { method: "POST", body: { page: S.page.id, set: S.activeSet, ...norm(box), text } });
+    S.boxes.push(saved); S.allBoxes.push(saved); S.draft = null; S.sel = saved.id;
     afterChange();
   }
 });
 
 async function saveBox(box) {
-  const body = { id: box.id, page: box.page, x: box.x, y: box.y, w: box.w, h: box.h, text: box.text,
+  const body = { id: box.id, page: box.page, set: box.set ?? S.activeSet, x: box.x, y: box.y, w: box.w, h: box.h, text: box.text,
     baseline: box.baseline ?? null };
   const saved = await api("/api/box", { method: "POST", body });
   Object.assign(box, saved);
@@ -336,7 +396,8 @@ async function afterChange() {
   draw(); showSel(); renderGlyphs(); renderPages();
   // a new baseline can lend itself to neighbours on the page: refresh them all
   try {
-    S.boxes = await api("/api/boxes");
+    setBoxes(await api("/api/boxes"));
+    renderSets();
   } catch (e) { $("log").textContent = `Couldn't refresh the boxes (${e.message}) - your change is saved; reload if anything looks off.`; }
   draw(); renderGlyphs(); showSel();
 }
@@ -363,6 +424,7 @@ window.addEventListener("keyup", (e) => { if (e.code === "Space") { S.space = fa
 async function delBox(b) {
   await api(`/api/box/${b.id}`, { method: "DELETE" });
   S.boxes = S.boxes.filter((x) => x.id !== b.id);
+  S.allBoxes = S.allBoxes.filter((x) => x.id !== b.id);
   S.sel = null;
   afterChange();
 }
@@ -415,8 +477,8 @@ function tab(which) {
 $("tab-label").onclick = () => tab("label");
 $("tab-result").onclick = async () => {
   tab("result");
-  const st = await api("/api/regenerate");
-  if (st.result) renderResult(st.result);
+  const res = await api("/api/result");
+  if (res) renderResult(res);
   else if (!$("result-grid").children.length) $("result-head").innerHTML = '<p class="muted">Nothing regenerated yet - label some glyphs, then press Regenerate.</p>';
 };
 $("regen").onclick = async () => {
@@ -445,9 +507,9 @@ function svgOf(d, strokes, adv) {
     <path d="${d}" fill="#111" fill-rule="evenodd"/>${lines}</g></svg>`;
 }
 function renderResult(r) {
-  const fonts = Object.entries(r.fonts || {}).map(([k, f]) => `<a class="dl" href="/api/out/${encodeURIComponent(f)}" download>${f}</a>`).join(" · ");
+  const fonts = Object.entries(r.fonts || {}).map(([k, f]) => `<a class="dl" href="/api/out/${encodeURIComponent(r.out)}/${encodeURIComponent(f)}" download>${f}</a>`).join(" · ");
   const est = r.estimated_pitch_mm ? ` · your text runs suggest ${r.estimated_pitch_mm.toFixed(3)} mm` : "";
-  $("result-head").innerHTML = `<b>Fonts:</b> ${fonts || "none"} <span class="muted">pitch ${r.pitch_mm} mm${est}</span>
+  $("result-head").innerHTML = `<b>${r.set_name || ""}</b> · <b>Fonts:</b> ${fonts || "none"} <span class="muted">pitch ${r.pitch_mm} mm${est}</span>
     <label style="margin:0 0 0 auto;display:flex;gap:6px;align-items:center"><input type="checkbox" id="show-strokes" checked style="width:auto"> seed strokes</label>`;
   const grid = $("result-grid");
   grid.innerHTML = "";

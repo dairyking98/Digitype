@@ -51,8 +51,12 @@ line into fixed-pitch cells at the project's pitch. The page warns when the text
 the ink (a missing or extra space). Baselines are automatic (letters that sit on the line give
 it; g j p , ( ... borrow it from their line); drag the red line to set one by hand.
 
+**Font sets:** a project can hold several typefaces (the Peli scans are a different Olympia face per
+page). Pick the set in the top bar, **+ New font** starts another; boxes, pitch and font name are
+kept per set, other sets' boxes show dimmed, and Regenerate only uses the chosen set.
+
 **Regenerate** averages every sample of each character (lined up on cell and baseline,
-registered sub-pixel), then writes two fixed-pitch fonts to `projects/<name>/out/`:
+registered sub-pixel), then writes two fixed-pitch fonts to `projects/<name>/out/<set>/`:
 `-Average.ttf` (the averaged ink, traced) and `-Seed.ttf` (sunk to a seed and regrown).
 Results shows each glyph's average, trace and seed. Projects live in `projects/` (not in git).
 

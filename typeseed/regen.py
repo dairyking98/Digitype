@@ -59,7 +59,7 @@ def box_cells(project, box):
     remembered until the box, its text or the pitch changes."""
     page = project.page(box["page"])
     key = (project.root, box.get("id"), box["page"], round(box["x"], 2), round(box["y"], 2), round(box["w"], 2),
-           round(box["h"], 2), box.get("text"), box.get("baseline"), project.meta["settings"]["pitch_mm"], page.get("dpi"))
+           round(box["h"], 2), box.get("text"), box.get("baseline"), project.settings(box.get("set", 1))["pitch_mm"], page.get("dpi"))
     hit = _CELL_CACHE.get(key)
     if hit is None:
         hit = _CELL_CACHE[key] = _box_cells(project, box)
@@ -87,14 +87,15 @@ def _box_cells(project, box):
         # the typewriter's pitch is fixed: split at the project's pitch when
         # the box agrees with it, and say so when the count can't fit
         page = project.page(box["page"])
-        p_set = pitch_px(project, page, project.meta["settings"])
+        settings = project.settings(box.get("set", 1))
+        p_set = pitch_px(project, page, settings)
         own = w / n
         if abs(own / p_set - 1) < 0.08:
             cw, spread = p_set, 0.02
         else:
             cw, spread = own, 0.06
             warn = (f"{n} characters in this box make a pitch of {own / (page.get('dpi') or 600) * 25.4:.2f} mm, "
-                    f"but the project's pitch is {project.meta['settings']['pitch_mm']} mm - check the text "
+                    f"but this font's pitch is {settings['pitch_mm']} mm - check the text "
                     f"(a missing or extra space?) or the pitch setting")
         # where do the cell boundaries go? Between letters (little ink on
         # the boundary columns), with the text's spaces on blank paper -
@@ -169,10 +170,10 @@ def _box_cells(project, box):
     return out
 
 
-def all_cells(project, with_pages=False):
+def all_cells(project, with_pages=False, sid=None):
     """Cells of every box; a cell still without a baseline borrows the
     median baseline of boxes on its page that overlap it vertically."""
-    snapshot = project.box_list()
+    snapshot = project.box_list(sid)
     per_box = {b["id"]: box_cells(project, b) for b in snapshot}
     boxes = {b["id"]: b for b in snapshot}
     for bid, cells in per_box.items():
@@ -201,10 +202,10 @@ def pitch_px(project, page, settings):
     return settings["pitch_mm"] / 25.4 * dpi
 
 
-def estimate_pitch_mm(project):
+def estimate_pitch_mm(project, sid=None):
     """From runs of text: box width / characters, in mm at each page's dpi."""
     vals = []
-    for b in project.box_list():
+    for b in project.box_list(project.meta["active_set"] if sid is None else sid):
         t = b.get("text") or ""
         if len(t) >= 4:
             dpi = project.page(b["page"]).get("dpi") or 600.0
@@ -284,15 +285,19 @@ def _to_units(geom, k, cx, base, advance):
     return affine_transform(geom, [k, 0, 0, -k, advance / 2 - cx * k, base * k])
 
 
-def regenerate(project, chars=None, log=print):
-    st = project.meta["settings"]
-    per_box, pages = all_cells(project, with_pages=True)
+def regenerate(project, chars=None, log=print, sid=None):
+    """One font set (the one being labelled, by default) -> its fonts."""
+    sid = project.meta["active_set"] if sid is None else sid
+    fs = project.font_set(sid)
+    st = fs["settings"]
+    log(f"Font set: {fs['name']}")
+    per_box, pages = all_cells(project, with_pages=True, sid=sid)
     by_char = {}
     for bid, cells in per_box.items():
         page = project.page(pages[bid])
         for c in cells:
             by_char.setdefault(c["char"], []).append((c, page))
-    out_dir = os.path.join(project.root, "out")
+    out_dir = project.out_dir(sid)
     os.makedirs(os.path.join(out_dir, "seeds"), exist_ok=True)
     results, seed_glyphs, avg_glyphs = {}, {}, {}
     adv, upem = st["advance"], st["upem"]
@@ -319,7 +324,7 @@ def regenerate(project, chars=None, log=print):
             seed_glyphs[ch] = grown_u
         if avg_u is not None:
             avg_glyphs[ch] = avg_u
-    return _finish(project, st, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log)
+    return _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log)
 
 
 def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
@@ -363,8 +368,9 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
     return result, grown_u, avg_u
 
 
-def _finish(project, st, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log):
-    name = st.get("font_name") or os.path.basename(project.root.rstrip("/\\")) or "Type Seed"
+def _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log):
+    st = fs["settings"]
+    name = st.get("font_name") or fs["name"] or "Type Seed"
     fonts = {}
     for label, glyphs in (("Seed", seed_glyphs), ("Average", avg_glyphs)):
         if glyphs:
@@ -372,8 +378,9 @@ def _finish(project, st, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, l
             write_font(path, f"{name} {label}", glyphs, upem, adv)
             fonts[label.lower()] = os.path.basename(path)
             log(f"wrote {path}")
-    summary = {"chars": results, "fonts": fonts, "advance": adv, "upem": upem,
-               "pitch_mm": st["pitch_mm"], "estimated_pitch_mm": estimate_pitch_mm(project)}
+    summary = {"chars": results, "fonts": fonts, "advance": adv, "upem": upem, "set": fs["id"], "set_name": fs["name"],
+               "out": os.path.basename(out_dir),
+               "pitch_mm": st["pitch_mm"], "estimated_pitch_mm": estimate_pitch_mm(project, fs["id"])}
     with open(os.path.join(out_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False)
     return summary

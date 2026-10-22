@@ -2,10 +2,11 @@
 and what glyph each holds, and a cache of every page as 8-bit grey.
 
 project dir/
-  project.json   sources, pages (file, frame or PDF page, size, dpi), settings
-  labels.json    boxes: page, x y w h (page pixels), text, baseline override
+  project.json   sources, pages (file, frame or PDF page, size, dpi), font sets
+                 (each typeface its own set, with its own settings: pitch, name...)
+  labels.json    boxes: set, page, x y w h (page pixels), text, baseline override
   cache/         page_<n>.npy (grey, full resolution), preview_<n>.jpg
-  out/           what Regenerate writes (font, seeds, averaged samples)
+  out/<set>/     what Regenerate writes for each set (fonts, seeds, results)
 """
 import json
 import os
@@ -29,11 +30,42 @@ class Project:
         os.makedirs(os.path.join(self.root, "cache"), exist_ok=True)
         os.makedirs(os.path.join(self.root, "out"), exist_ok=True)
         self._lock = threading.Lock()
-        self.meta = self._read("project.json", {"sources": [], "pages": [], "settings": dict(DEFAULT_SETTINGS)})
-        self.meta["settings"] = {**DEFAULT_SETTINGS, **self.meta.get("settings", {})}
+        self.meta = self._read("project.json", {"sources": [], "pages": []})
         self.labels = self._read("labels.json", {"boxes": [], "next_id": 1})
+        # font sets: one per typeface, so two fonts on the same pages never
+        # get averaged together. A project from before sets becomes set 1.
+        if not self.meta.get("sets"):
+            old = {**DEFAULT_SETTINGS, **self.meta.pop("settings", {})}
+            name = old.get("font_name") or os.path.basename(self.root.rstrip("/\\")) or "Font 1"
+            self.meta["sets"] = [{"id": 1, "name": name, "settings": old}]
+            self.meta["active_set"] = 1
+            for b in self.labels["boxes"]:
+                b.setdefault("set", 1)
+        for st in self.meta["sets"]:
+            st["settings"] = {**DEFAULT_SETTINGS, **st.get("settings", {})}
+        if self.meta.get("active_set") not in [s["id"] for s in self.meta["sets"]]:
+            self.meta["active_set"] = self.meta["sets"][0]["id"]
+        # results written before font sets (loose in out/) belong to set 1
+        out = os.path.join(self.root, "out")
+        loose = [n for n in os.listdir(out) if n == "result.json" or n == "seeds" or n.endswith(".ttf")]
+        if loose:
+            dest = self.out_dir(self.meta["sets"][0]["id"])
+            for n in loose:
+                if not os.path.exists(os.path.join(dest, n)):
+                    os.replace(os.path.join(out, n), os.path.join(dest, n))
+            p = os.path.join(dest, "result.json")
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8") as f:
+                    r = json.load(f)
+                r.setdefault("out", os.path.basename(dest))
+                r.setdefault("set", self.meta["sets"][0]["id"])
+                r.setdefault("set_name", self.meta["sets"][0]["name"])
+                with open(p, "w", encoding="utf-8") as f:
+                    json.dump(r, f, ensure_ascii=False)
         if sources:
             self.add_sources(sources)
+        else:
+            self.save()
 
     # ------------------------------------------------------------ files
     def _read(self, name, default):
@@ -121,16 +153,67 @@ class Project:
             im = im.resize((int(out_w), max(1, int(im.height * out_w / im.width))), Image.LANCZOS)
         return im
 
-    # ------------------------------------------------------------ boxes
-    def box_list(self):
-        """A snapshot: boxes can be added or deleted by another request
-        while this one is still reading."""
+    # ------------------------------------------------------------ font sets
+    def font_set(self, sid=None):
+        sid = self.meta["active_set"] if sid is None else sid
+        for s in self.meta["sets"]:
+            if s["id"] == sid:
+                return s
+        return self.meta["sets"][0]
+
+    def settings(self, sid=None):
+        return self.font_set(sid)["settings"]
+
+    def new_set(self, name):
+        """A new, empty font set (settings copied from the current one, as a
+        starting point) - and make it the one being labelled."""
         with self._lock:
-            return [dict(b) for b in self.labels["boxes"]]
+            sid = max(s["id"] for s in self.meta["sets"]) + 1
+            st = dict(self.settings())
+            st["font_name"] = ""
+            self.meta["sets"].append({"id": sid, "name": name or f"Font {sid}", "settings": st})
+            self.meta["active_set"] = sid
+        self.save()
+        return self.font_set(sid)
+
+    def rename_set(self, sid, name):
+        self.font_set(sid)["name"] = name
+        self.save()
+
+    def activate_set(self, sid):
+        self.meta["active_set"] = self.font_set(sid)["id"]
+        self.save()
+
+    def delete_set(self, sid):
+        """Only an empty set can go (its boxes would be lost)."""
+        if any(b.get("set", 1) == sid for b in self.labels["boxes"]):
+            raise ValueError("this font set still has boxes - delete them first")
+        if len(self.meta["sets"]) == 1:
+            raise ValueError("a project needs at least one font set")
+        with self._lock:
+            self.meta["sets"] = [s for s in self.meta["sets"] if s["id"] != sid]
+            if self.meta["active_set"] == sid:
+                self.meta["active_set"] = self.meta["sets"][0]["id"]
+        self.save()
+
+    def out_dir(self, sid=None):
+        st = self.font_set(sid)
+        safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in st["name"]).strip() or f"set{st['id']}"
+        d = os.path.join(self.root, "out", f"{st['id']:02d} {safe}")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    # ------------------------------------------------------------ boxes
+    def box_list(self, sid=None):
+        """A snapshot (boxes can be added or deleted by another request while
+        this one is still reading) - of one font set when sid is given."""
+        with self._lock:
+            return [dict(b) for b in self.labels["boxes"] if sid is None or b.get("set", 1) == sid]
 
     def upsert_box(self, box):
         with self._lock:
             if not box.get("id"):
+                box.setdefault("set", self.meta["active_set"])
                 box["id"] = self.labels["next_id"]
                 self.labels["next_id"] += 1
                 box["created"] = time.time()

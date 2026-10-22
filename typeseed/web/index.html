@@ -11,6 +11,14 @@
   <b class="brand">Type Seed</b>
   <span id="root" class="muted"></span>
   <span class="spacer"></span>
+  <span class="setbar" title="Each typeface is its own font set: boxes, pitch and name are kept per set, and Regenerate only uses the set chosen here">
+    <label for="set-pick">Font</label>
+    <select id="set-pick"></select>
+    <button id="set-new" title="Start a new font set for another typeface - this set's boxes stay saved">+ New font</button>
+    <button id="set-rename" title="Rename this font set">Rename</button>
+    <button id="set-del" title="Delete this font set (only when it has no boxes)">Delete</button>
+    <input id="set-name-input" placeholder="Font name, Enter" hidden>
+  </span>
   <button id="tab-label" class="tab on">Label</button>
   <button id="tab-result" class="tab">Results</button>
   <button id="regen" class="primary">Regenerate</button>

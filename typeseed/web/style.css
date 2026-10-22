@@ -57,3 +57,7 @@ pre#log { margin: 0; max-height: 220px; overflow: auto; font-size: 11px; color: 
 .rcard .cap { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 10px; color: var(--text-3); text-align: center; margin-top: 2px; }
 a.dl { color: var(--accent); }
 #sel-info { white-space: pre-wrap; }
+.setbar { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.setbar label { margin: 0; color: var(--text-2); }
+.setbar select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; max-width: 220px; }
+.setbar input { width: 180px; }

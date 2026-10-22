@@ -1,6 +1,7 @@
 """The labelling tool's local web server: pages, boxes, settings and the
 Regenerate job. Started by `python -m typeseed label`."""
 import io
+import json
 import os
 import threading
 import traceback
@@ -24,10 +25,44 @@ def make_app(project: Project):
         per = regen.all_cells(project)
         return [{**b, "cells": per.get(b["id"], [])} for b in snapshot]
 
+    def state():
+        return {"root": project.root, "pages": project.meta["pages"], "sets": project.meta["sets"],
+                "active_set": project.meta["active_set"], "settings": project.settings(),
+                "boxes": boxes_with_cells(), "estimated_pitch_mm": regen.estimate_pitch_mm(project)}
+
     @app.get("/api/project")
     def get_project():
-        return {"root": project.root, "pages": project.meta["pages"], "settings": project.meta["settings"],
-                "boxes": boxes_with_cells(), "estimated_pitch_mm": regen.estimate_pitch_mm(project)}
+        return state()
+
+    # font sets: each typeface labelled separately, so two never get combined
+    @app.post("/api/sets")
+    def new_set(body: dict = Body(default={})):
+        project.new_set((body.get("name") or "").strip())
+        return state()
+
+    @app.post("/api/sets/{sid}")
+    def edit_set(sid: int, body: dict = Body(default={})):
+        if body.get("name"):
+            project.rename_set(sid, body["name"].strip())
+        if body.get("activate"):
+            project.activate_set(sid)
+        return state()
+
+    @app.delete("/api/sets/{sid}")
+    def delete_set(sid: int):
+        try:
+            project.delete_set(sid)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        return state()
+
+    @app.get("/api/result")
+    def result():
+        p = os.path.join(project.out_dir(), "result.json")
+        if not os.path.isfile(p):
+            return None
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
 
     @app.post("/api/sources")
     def add_sources(body: dict = Body(...)):
@@ -76,7 +111,7 @@ def make_app(project: Project):
 
     @app.post("/api/settings")
     def settings(body: dict = Body(...)):
-        s = project.meta["settings"]
+        s = project.settings()
         for k, v in body.items():
             if k in s:
                 s[k] = type(s[k])(v) if not isinstance(s[k], str) else str(v)
@@ -105,9 +140,9 @@ def make_app(project: Project):
         return {"running": job["running"], "log": job["log"][since:], "n": len(job["log"]),
                 "result": job["result"] if not job["running"] else None, "error": job["error"]}
 
-    @app.get("/api/out/{name}")
-    def out_file(name: str):
-        p = os.path.join(project.root, "out", os.path.basename(name))
+    @app.get("/api/out/{folder}/{name}")
+    def out_file(folder: str, name: str):
+        p = os.path.join(project.root, "out", os.path.basename(folder), os.path.basename(name))
         if not os.path.isfile(p):
             raise HTTPException(404, "not built yet")
         return FileResponse(p, filename=os.path.basename(p))
