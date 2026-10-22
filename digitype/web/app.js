@@ -262,6 +262,7 @@ function fit() {
   viewChanged();
 }
 
+const orientKey = (p) => `${(p && p.quarter) || 0}_${(p && p.rotation) || 0}`;
 let hiTimer = null;
 function viewChanged() {
   draw();
@@ -277,12 +278,13 @@ async function loadHi() {
   w = Math.min(S.page.w - x, w); h = Math.min(S.page.h - y, h);
   if (w <= 0 || h <= 0) return;
   const out = Math.round(Math.min(4000, w * S.zoom * dpr()));
-  const pid = S.page.id, key = [x, y, w, h].map(Math.round).join(",");
+  const pid = S.page.id, key = [x, y, w, h].map(Math.round).join(","), orient = orientKey(S.page);
   const img = new Image();
-  img.src = `/api/page/${pid}/region?x=${x}&y=${y}&w=${w}&h=${h}&out=${out}`;
+  img.src = `/api/page/${pid}/region?x=${x}&y=${y}&w=${w}&h=${h}&out=${out}&o=${orient}`;
   await img.decode().catch(() => {});
-  if (S.page.id !== pid) return;
-  S.hi = { img, x, y, w, h, key };
+  // a tile asked for before the page was turned must not land on the turned page
+  if (S.page.id !== pid || orientKey(S.page) !== orient) return;
+  S.hi = { img, x, y, w, h, key, orient };
   draw();
 }
 
@@ -312,7 +314,7 @@ function draw() {
   }
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(S.img, 0, 0, S.page.w, S.page.h);
-  if (S.hi) ctx.drawImage(S.hi.img, S.hi.x, S.hi.y, S.hi.w, S.hi.h);
+  if (S.hi && S.hi.orient === orientKey(S.page)) ctx.drawImage(S.hi.img, S.hi.x, S.hi.y, S.hi.w, S.hi.h);
   const lw = 1.5 / z;
   ctx.font = `${13 / z}px ui-monospace, monospace`;
   ctx.setLineDash([4 / z, 4 / z]);

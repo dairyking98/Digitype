@@ -117,6 +117,10 @@ def make_app(project: Project):
         if "dpi" in body and not body["dpi"]:
             page["dpi"] = None
             project.save()
+        if "rotation" in body or "quarter" in body:
+            # start turning the full-resolution page now, so the sharp view
+            # (zoomed in) and Regenerate don't wait for it later
+            threading.Thread(target=lambda: project.grey(pid), daemon=True).start()
         return {"page": page, "boxes": boxes_with_cells()}
 
     @app.post("/api/box")
