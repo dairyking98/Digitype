@@ -652,6 +652,13 @@ def write_font(path, family, glyphs, upem, advance):
     asc, desc = int(max(ymax, upem * 0.75)), int(min(ymin, -upem * 0.25))
     fb.setupHorizontalHeader(ascent=asc, descent=desc)
     fb.setupNameTable({"familyName": family, "styleName": "Regular"})
-    fb.setupOS2(sTypoAscender=asc, sTypoDescender=desc, usWinAscent=asc, usWinDescent=-desc, xAvgCharWidth=advance)
+    from fontTools.ttLib.tables.O_S_2f_2 import Panose
+    pan = Panose()
+    for k in ("bFamilyType", "bSerifStyle", "bWeight", "bProportion", "bContrast", "bStrokeVariation",
+              "bArmStyle", "bLetterForm", "bMidline", "bXHeight"):
+        setattr(pan, k, 0)
+    pan.bFamilyType, pan.bProportion = 2, 9          # Latin text, monospaced - what font menus check
+    fb.setupOS2(sTypoAscender=asc, sTypoDescender=desc, usWinAscent=asc, usWinDescent=-desc,
+                xAvgCharWidth=advance, panose=pan)
     fb.setupPost(isFixedPitch=1)
     fb.save(path)
