@@ -41,7 +41,7 @@ modified (lighter/bolder, more or less contrast, monoline), and exported as a fo
 ## Labelling tool (real scans)
 
 ```
-run.bat "E:\Leonard\Typewriter\Typefaces\Type Samples\Peli"      (Windows; first run sets up .venv)
+run.bat "D:\Scans\Type Samples"      (Windows; first run sets up .venv)
 .venv/bin/python3 -m typeseed label path/to/samples [--project DIR]  (anywhere)
 ```
 
