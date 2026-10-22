@@ -51,8 +51,24 @@ def _ink(gray, thr):
     return morphology.remove_small_objects(ink, max_size=max(3, ink.size // 4000))
 
 
+_CELL_CACHE = {}
+
+
 def box_cells(project, box):
-    """[{char, x, y, w, h, baseline, auto}] in page pixels for one box."""
+    """[{char, x, y, w, h, baseline, auto}] in page pixels for one box -
+    remembered until the box, its text or the pitch changes."""
+    page = project.page(box["page"])
+    key = (project.root, box.get("id"), box["page"], round(box["x"], 2), round(box["y"], 2), round(box["w"], 2),
+           round(box["h"], 2), box.get("text"), box.get("baseline"), project.meta["settings"]["pitch_mm"], page.get("dpi"))
+    hit = _CELL_CACHE.get(key)
+    if hit is None:
+        hit = _CELL_CACHE[key] = _box_cells(project, box)
+        if len(_CELL_CACHE) > 20000:
+            _CELL_CACHE.clear()
+    return [dict(c) for c in hit]
+
+
+def _box_cells(project, box):
     text = box.get("text") or ""
     g = project.grey(box["page"])
     x, y, w, h = (int(round(box[k])) for k in ("x", "y", "w", "h"))
