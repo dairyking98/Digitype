@@ -42,6 +42,7 @@ function showSettings(est) {
   $("set-weight").value = s.weight; $("set-add").value = s.add;
   $("set-el").value = s.expand_left; $("set-er").value = s.expand_right;
   $("set-place").value = s.placement || "typed";
+  $("set-split").value = s.split_variants || "";
   $("set-soft").checked = s.soft_edges !== false; $("set-smooth").value = s.smooth ?? 1;
   $("set-bmode").value = s.baseline_mode || "adaptive"; $("set-tilt").checked = s.tilt_correction !== false;
   const pe = $("pitch-est");
@@ -69,7 +70,7 @@ $("set-place").addEventListener("change", async (e) => {
   $("log").textContent = "Placement changed - press Regenerate to apply it to the fonts.";
 });
 $("set-tilt").addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { tilt_correction: e.target.checked } }); });
-for (const [id, key] of [["set-smooth", "smooth"], ["set-el", "expand_left"], ["set-er", "expand_right"], ["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"]]) {
+for (const [id, key] of [["set-smooth", "smooth"], ["set-el", "expand_left"], ["set-er", "expand_right"], ["set-pitch", "pitch_mm"], ["set-name", "font_name"], ["set-up", "upsample"], ["set-weight", "weight"], ["set-add", "add"], ["set-split", "split_variants"]]) {
   $(id).addEventListener("change", async (e) => { S.settings = await api("/api/settings", { method: "POST", body: { [key]: e.target.value } }); });
 }
 
@@ -766,7 +767,7 @@ function renderResult(r) {
     for (const [ch, g] of entries) {
       const card = document.createElement("div");
       card.className = "rcard";
-      const title = `<div class="t"><b></b><span class="muted">${g.image ? "glyph image" + (g.n ? " · " : "") : ""}${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}${g.image ? " not used" : ""}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}${g.variants ? ` · <span style="color:var(--accent)">${g.variants.length} variants</span>` : ""}</span></div>`;
+      const title = `<div class="t"><b></b><span class="muted">${g.image ? "glyph image" + (g.n ? " · " : "") : ""}${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}${g.image ? " not used" : ""}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}${g.variants ? ` · <span style="color:var(--accent)">${g.variants.length} variants</span>` : ""}${g.variant_hint ? ` · <span class="muted" title="Its samples look like ${g.variant_hint.length} different shapes (boxes ${g.variant_hint.map((b) => b.join(", ")).join(" | ")}) - a label to check, a badly printed sample, or a real variant: add it to Split into variants to keep them apart">${g.variant_hint.length} shapes?</span>` : ""}</span></div>`;
       if (!g.n && !g.image || g.error && !g.avg_svg) { card.innerHTML = title; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
       card.innerHTML = `${title}
         <div class="imgs"><div>${panel("avg", g, r)}</div><div>${panel("trace", g, r)}</div><div>${panel("seed", g, r, show ? g.strokes : null)}</div></div>

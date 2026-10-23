@@ -135,6 +135,8 @@
       <label class="inline" title="Use each scan's grey edge (sub-pixel) instead of cutting it to black and white - single samples trace much smoother"><input type="checkbox" id="set-soft"> Soft edges</label>
       <label title="Extra smoothing for glyphs with few samples, fading as more are averaged (0 = off, 1 = normal, 2 = strong)">Smoothing
         <input id="set-smooth" type="number" step="0.25" min="0" max="4"></label>
+      <label title="Characters whose samples are two different shapes (umlaut dots on one typewriter, double-acute strokes on another): each shape is averaged on its own, one goes in the font and the others become alternates (ss01). Characters that look split but aren't listed are only flagged.">Split into variants
+        <input id="set-split" placeholder="e.g. äöü" spellcheck="false"></label>
       <label title="Font name for the exported .ttf files">Font name <input id="set-name"></label>
       <label title="How much the averaged sample is enlarged before the seed is taken - smoother curves, slower">Detail ×
         <input id="set-up" type="number" step="1" min="1" max="8"></label>

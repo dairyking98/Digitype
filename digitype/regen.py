@@ -852,6 +852,14 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print, split=T
     -> (result for the page, regrown shape, traced shape), font units. If
     only the seed step fails, the traced average still goes in the font."""
     groups = variant_groups(average(samples, p, registered=True)) if split and len(samples) >= 2 else [list(range(len(samples)))]
+    hint = None
+    if len(groups) > 1 and ch not in (st.get("split_variants") or ""):
+        # only characters asked for are split - for the rest it's a hint
+        # (often a label to check, or a sample that's just badly printed)
+        hint = [sorted({samples[i][3].get("box") for i in g if len(samples[i]) > 3}) for g in groups]
+        log(f"    {ch!r} samples look like {len(groups)} shapes (boxes {' | '.join(', '.join(map(str, b)) for b in hint)}) - "
+            f"add it to 'Split into variants' to keep them apart")
+        groups = [list(range(len(samples)))]
     if len(groups) > 1:
         # one variant per group of look-alike samples; the one picked for this
         # character (by a box of its samples) goes in the font, the others
@@ -874,7 +882,10 @@ def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print, split=T
     if odd:
         log(f"    {len(odd)} sample{'s' if len(odd) > 1 else ''} of {ch!r} left out - unlike the others "
             f"(box {', '.join(str(o['box']) for o in odd)}): check the label")
-    return _from_prob(ch, prob, base, cx, n, odd, p, page0.get("dpi"), st, out_dir, skipped, log)
+    res = _from_prob(ch, prob, base, cx, n, odd, p, page0.get("dpi"), st, out_dir, skipped, log)
+    if hint:
+        res[0]["variant_hint"] = hint
+    return res
 
 
 def _image_glyph(project, ch, pic, from_scans, st, out_dir, log=print):
