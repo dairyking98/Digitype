@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digitype</title>
+<link rel="stylesheet" href="style.css">
+
+<style>
+.boot { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--bg, #f4f4f2); }
+.boot-card { max-width: 30rem; padding: 1.5rem; display: grid; gap: .6rem; }
+.boot-card button { margin: .2rem .4rem .2rem 0; }
+.static-note { font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="boot" class="boot">
+  <div class="boot-card">
+    <b class="brand">Digitype</b>
+    <p class="muted small">Runs entirely in this browser: Python (Pyodide) does the averaging, tracing and
+      font building, and nothing is uploaded anywhere. The first start downloads about 40 MB.</p>
+    <p id="boot-status">Starting…</p>
+    <div id="boot-pick" hidden>
+      <button id="boot-browser" class="primary" title="Kept in this browser's storage, on this computer">Keep the project in this browser</button>
+      <button id="boot-folder" title="A folder on disk holds the project (Chrome/Edge); it's read into memory when opened">Open a project folder…</button>
+    </div>
+  </div>
+</div>
+
+<header class="top">
+  <b class="brand">Digitype</b>
+  <span id="root" class="muted"></span>
+  <span class="spacer"></span>
+  <span class="setbar" title="Each typeface is its own font set: boxes, pitch and name are kept per set, and Regenerate only uses the set chosen here">
+    <label for="set-pick">Font</label>
+    <select id="set-pick"></select>
+    <button id="set-new" title="Start a new font set for another typeface - this set's boxes stay saved">+ New font</button>
+    <button id="set-rename" title="Rename this font set">Rename</button>
+    <button id="set-del" title="Delete this font set (only when it has no boxes)">Delete</button>
+    <input id="set-name-input" placeholder="Font name, Enter" hidden>
+  </span>
+  <button id="tab-label" class="tab on">Label</button>
+  <button id="tab-images" class="tab" title="Clean pictures of characters - cleaned up or drawn, by hand or with an AI image tool - used instead of the scans">Glyph images</button>
+  <button id="tab-result" class="tab">Results</button>
+  <button id="regen" class="primary">Regenerate</button>
+</header>
+<div class="main">
+  <aside class="left">
+    <h3>Pages</h3>
+    <div id="pages"></div>
+    <div id="page-tools" class="page-tools" hidden>
+      <h3>This page</h3>
+      <div id="pg-info" class="muted small"></div>
+      <label title="The scan's real resolution - files often carry a wrong value or none. Only used to turn the pitch setting into pixels.">DPI
+        <input id="pg-dpi" type="number" step="1" min="50" placeholder="unknown"></label>
+      <label title="Straighten the page: drag and line the text up with the guide lines (clockwise +). Boxes on the page turn with it.">Rotate
+        <input id="pg-rot" type="range" min="-10" max="10" step="0.05" value="0"></label>
+      <div class="row">
+        <input id="pg-rot-n" type="number" step="0.05" min="-45" max="45" title="Rotation in degrees (clockwise +)">
+        <span class="muted small">°</span>
+        <button id="pg-rot0" class="small" title="Back to 0°">0°</button>
+      </div>
+      <div class="row">
+        <button id="pg-ql" class="small" title="Turn the page a quarter turn left">⟲ 90°</button>
+        <button id="pg-qr" class="small" title="Turn the page a quarter turn right">⟳ 90°</button>
+        <label class="inline" title="Show horizontal guide lines over the page"><input type="checkbox" id="pg-guides"> Guides</label>
+      </div>
+    </div>
+    <button id="upload-btn" class="upload" title="Upload PDFs or images (TIFF, PNG, JPG, BMP) from this computer - they're copied into the project">Upload PDF / images…</button>
+    <input id="upload-input" type="file" multiple accept=".pdf,.tif,.tiff,.png,.jpg,.jpeg,.bmp,.gif,.webp,application/pdf,image/*" hidden>
+    <div id="upload-status" class="muted small"></div>
+    <p class="muted static-note">Project: <span id="static-where"></span> · <a href="api/export" download>Download project (.zip)</a> · <a href="#" id="static-open">Open project (.zip)…</a><input id="static-zip" type="file" accept=".zip" hidden></p>
+    <details class="add" hidden>
+      <summary>Add from a path…</summary>
+      <p class="muted">A file or folder path on this computer (images, multi-page TIFF, PDF).</p>
+      <input id="add-path" placeholder="D:\Scans\Type Samples">
+      <button id="add-btn">Add</button>
+    </details>
+  </aside>
+
+  <section id="view-label" class="center">
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <input id="glyph-input" class="glyph-input" maxlength="200" autocomplete="off" spellcheck="false" hidden>
+    </div>
+    <div class="hint" id="hint">Drag a box around a glyph and type it. Type a whole run of characters to split a line
+      into fixed-pitch cells. Wheel = zoom · right-drag or Space+drag = pan · click a box to select ·
+      double-click (or Enter) edits its text · Delete removes · drag a selected box's handles to resize it · Shift+drag moves a box or its red baseline · arrows nudge (Shift ×10).</div>
+  </section>
+
+  <section id="view-images" class="center result" hidden>
+    <div class="img-head">
+      <button id="img-add" class="primary" title="PNG, JPG, BMP, TIFF or WebP - one character per picture, dark on light (or on a transparent background)">Add glyph images…</button>
+      <input id="img-input" type="file" multiple accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp,.gif,image/*" hidden>
+      <label class="inline" title="A character from this font drawn faintly behind each picture, for size and weight">Compare with <input id="img-ref" maxlength="1" spellcheck="false" autocomplete="off"></label>
+      <span id="img-status" class="muted small"></span>
+    </div>
+    <p class="muted small img-help">A glyph image is a clean picture of one character - a sample cleaned up, or a missing character drawn,
+      by hand or with an AI image tool - used in place of the scans when you Regenerate (both fonts; the scans of that character are kept, just not used).
+      Type which character each one is. It's placed for you: onto the character's own average when it has samples, otherwise where a
+      standard font puts it, scaled to this face's capitals. <b>Drag</b> to move it, <b>wheel</b> to scale (Shift = fine), arrows nudge.
+      Name a file after its character (<code>&amp;.png</code>, <code>uni0026.png</code>) and it's filled in. To clean up a glyph you already have,
+      open it in Results and save its picture.</p>
+    <div id="img-grid"></div>
+  </section>
+
+  <section id="view-result" class="center result" hidden>
+    <div id="result-head"></div>
+    <div id="testtype" class="testtype">
+      <div class="tt-bar">
+        <b>Test type</b>
+        <input id="tt-text" spellcheck="false" autocomplete="off">
+        <label class="inline" title="Type size">Size <input id="tt-size" type="range" min="16" max="160" value="56"></label>
+      </div>
+      <div class="tt-row"><span class="tt-lab">Average (traced)</span><div id="tt-avg" class="tt-sample"></div></div>
+      <div class="tt-row"><span class="tt-lab">Seed (regrown)</span><div id="tt-seed" class="tt-sample"></div></div>
+      <div id="tt-missing" class="muted small"></div>
+    </div>
+    <div id="result-grid"></div>
+  </section>
+
+  <aside class="right">
+    <div id="sel" class="panel" hidden>
+      <h3>Selected box</h3>
+      <label>Glyph(s) <input id="sel-text" autocomplete="off" spellcheck="false"></label>
+      <div class="row"><span id="sel-info" class="muted"></span></div>
+      <label title="Move this box to another font set (a different typeface) - it keeps its text and baseline">Font
+        <select id="sel-set"></select></label>
+      <div class="row">
+        <button id="sel-base-clear" title="Go back to the automatic baseline">Auto baseline</button>
+        <button id="sel-del" class="danger">Delete</button>
+      </div>
+      <div id="sel-crop"></div>
+    </div>
+    <div class="panel">
+      <h3>Glyphs <span id="glyph-count" class="muted"></span></h3>
+      <div id="glyphs"></div>
+    </div>
+    <div class="panel">
+      <h3>Settings</h3>
+      <label title="Character pitch of the typewriter: 2.54 mm = 10 per inch (pica), 2.12 mm = 12 per inch (elite)">Pitch (mm)
+        <input id="set-pitch" type="number" step="0.01"></label>
+      <div id="pitch-est" class="muted small"></div>
+      <div class="row2">
+        <label title="How far past the left edge of each cell ink is collected, as a fraction of the cell's width. Raise it when wide letters lose their left side.">Expand left
+          <input id="set-el" type="number" step="0.05" min="0"></label>
+        <label title="How far past the right edge of each cell ink is collected, as a fraction of the cell's width. Raise it when wide letters (w, m, W) lose their right side.">Expand right
+          <input id="set-er" type="number" step="0.05" min="0"></label>
+      </div>
+      <div class="muted small">Ink outside its cell still counts when it's part of a stroke that reaches the cell's middle, so neighbours don't leak in.</div>
+      <label title="Adaptive: the baseline follows each line locally, for lines that wave or drift. Straight: one straight (possibly tilted) baseline per line.">Baseline
+        <select id="set-bmode"><option value="adaptive">Adaptive - follows waves and drift</option><option value="straight">Straight - one line per run</option></select></label>
+      <label class="inline" title="Turn each sample level by its line's tilt before averaging, so samples from crooked lines line up"><input type="checkbox" id="set-tilt"> Tilt correction</label>
+      <label title="As typed: each glyph keeps its place in its typewriter cell. Centred: each glyph's ink is centred in the cell.">Placement
+        <select id="set-place"><option value="typed">As typed - where it sat in its cell</option><option value="center">Centred in the cell</option></select></label>
+      <label class="inline" title="Use each scan's grey edge (sub-pixel) instead of cutting it to black and white - single samples trace much smoother"><input type="checkbox" id="set-soft"> Soft edges</label>
+      <label title="Extra smoothing for glyphs with few samples, fading as more are averaged (0 = off, 1 = normal, 2 = strong)">Smoothing
+        <input id="set-smooth" type="number" step="0.25" min="0" max="4"></label>
+      <label title="Characters whose samples are two different shapes (umlaut dots on one typewriter, double-acute strokes on another): each shape is averaged on its own, one goes in the font and the others become alternates (ss01). Characters that look split but aren't listed are only flagged.">Split into variants
+        <input id="set-split" placeholder="e.g. äöü" spellcheck="false"></label>
+      <label title="Font name for the exported .ttf files">Font name <input id="set-name"></label>
+      <label title="How much the averaged sample is enlarged before the seed is taken - smoother curves, slower">Detail ×
+        <input id="set-up" type="number" step="1" min="1" max="8"></label>
+      <label title="Scales every stroke's half-width when growing back (1 = as measured)">Weight ×
+        <input id="set-weight" type="number" step="0.01"></label>
+      <label title="Adds to every stroke's half-width (font units; + bolder, - lighter) - e.g. to take ink spread out">Add (units)
+        <input id="set-add" type="number" step="1"></label>
+    </div>
+    <div class="panel">
+      <h3>Log</h3>
+      <pre id="log"></pre>
+    </div>
+  </aside>
+</div>
+<script type="module" src="static.js"></script>
+</body>
+</html>

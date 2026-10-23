@@ -32,7 +32,7 @@ from skimage.registration import phase_cross_correlation
 
 from . import grow as G
 from . import images, island
-from .raster import Grid, clean
+from .raster import Grid, clean, drop_small
 from .seed import from_island
 
 ON_BASELINE = set("ABCDEFGHIKLMNOPRSTUVWXYZabcdefhiklmnorstuvwxz0123456789.!?:%&#ÄÖÜäöüßÆæØøÅåÉéÈèÊêËëÀàÂâÎîÏïÔôÛûÙùÇ")
@@ -48,7 +48,7 @@ def _threshold(gray):
 
 def _ink(gray, thr):
     ink = np.asarray(gray) < thr
-    return morphology.remove_small_objects(ink, max_size=max(3, ink.size // 4000))
+    return drop_small(ink, max(3, ink.size // 4000))
 
 
 _CELL_CACHE = {}

@@ -4,7 +4,7 @@
 into clean, installable monospaced fonts. Label where each character is; Digitype averages every
 impression, traces it, and rebuilds it.
 
-**Site:** https://leonardchau.com/Digitype/ · **Docs:** [Preparing samples](docs/preparing-samples.md) · [User guide](docs/user-guide.md) ·
+**Site:** https://leonardchau.com/Digitype/ · **Try it in your browser:** https://leonardchau.com/Digitype/app/ · **Docs:** [Preparing samples](docs/preparing-samples.md) · [User guide](docs/user-guide.md) ·
 [How it works](docs/how-it-works.md) · [Settings](docs/settings.md)
 
 ![Results: test type in the two generated fonts, and glyphs averaged, traced and regrown](docs/assets/results.jpg)
@@ -56,6 +56,16 @@ modified (lighter/bolder, more or less contrast, monoline), and exported as a fo
 | standardize across the alphabet | | planned |
 | terminal / serif styles (flat ends come back round today) | | planned |
 | export a .ttf (fontTools) | `regen.write_font` | done |
+
+## In the browser (no install)
+
+https://leonardchau.com/Digitype/app/ runs the same labelling tool with nothing installed: Python
+runs in the browser (Pyodide), and a service worker answers the page's `/api/` requests with
+`digitype/webapi.py` in place of the server. The project lives in the browser's storage (or a folder
+picked on disk, Chrome/Edge); **Download project** / **Open project (.zip)** move it between computers.
+No "Add from a path" (a web page can't read paths), and Regenerate is about 1.6x slower than native.
+Build: `python3 site/build.py` (local test in `site/dist/`) or `python3 site/build.py docs/app`
+(what GitHub Pages serves - rebuild it whenever `digitype/` changes).
 
 ## Labelling tool (real scans)
 

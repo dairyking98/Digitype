@@ -67,6 +67,24 @@ def dirty(ink, rng, spread_px=2.0, rough=1.2, speckle=0.0015, blobs=3, breaks=2,
     return out
 
 
+def drop_small(ink, max_size):
+    """Drop ink pieces of at most `max_size` pixels. scikit-image 0.26 calls
+    the limit max_size; older ones (the browser build's) take min_size, which
+    drops only pieces smaller than it - so one more."""
+    try:
+        return morphology.remove_small_objects(ink, max_size=max_size)
+    except TypeError:
+        return morphology.remove_small_objects(ink, min_size=max_size + 1)
+
+
+def fill_small_holes(ink, max_size):
+    """Fill holes of at most `max_size` pixels (older scikit-image: area_threshold, one more)."""
+    try:
+        return morphology.remove_small_holes(ink, max_size=max_size)
+    except TypeError:
+        return morphology.remove_small_holes(ink, area_threshold=max_size + 1)
+
+
 def clean(ink, min_area_frac=0.002, hole_strokes=1.5):
     """First pass: drop specks and fill pinholes - anything too small to be
     part of a letter - then smooth the edge a little. A hole is filled when
@@ -74,9 +92,9 @@ def clean(ink, min_area_frac=0.002, hole_strokes=1.5):
     stroke width read off the ink's own depth map); a real counter, even
     the eye of an e, is several stroke widths."""
     area = ink.sum()
-    out = morphology.remove_small_objects(ink, max_size=max(4, int(area * min_area_frac)))
+    out = drop_small(ink, max(4, int(area * min_area_frac)))
     depth = ndimage.distance_transform_edt(out)
     stroke = 2 * np.percentile(depth[depth > 0], 90) if depth.max() > 0 else 4
-    out = morphology.remove_small_holes(out, max_size=int(np.pi * (hole_strokes * stroke / 2) ** 2))
+    out = fill_small_holes(out, int(np.pi * (hole_strokes * stroke / 2) ** 2))
     out = morphology.opening(out, morphology.disk(1))
     return morphology.closing(out, morphology.disk(1))
