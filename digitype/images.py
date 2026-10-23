@@ -29,7 +29,10 @@ def load_ink(path):
             return np.clip(a * (1.0 - rgba[..., :3].mean(axis=2)), 0, 1)
     grey = np.asarray(im.convert("L"), np.float32) / 255.0
     ink = 1.0 - grey
-    if ink.mean() > 0.5:      # white on black: turn it round
+    # white on black: turn it round - judged by the border, where the paper
+    # is (a tight crop of a bar or a blob can be mostly ink)
+    edge = np.concatenate([ink[0], ink[-1], ink[:, 0], ink[:, -1]])
+    if edge.mean() > 0.5:
         ink = 1.0 - ink
     # the paper isn't always pure white: stretch so its level is 0
     paper = float(np.percentile(ink, 10))
