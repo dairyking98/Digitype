@@ -766,7 +766,7 @@ function renderResult(r) {
     for (const [ch, g] of entries) {
       const card = document.createElement("div");
       card.className = "rcard";
-      const title = `<div class="t"><b></b><span class="muted">${g.image ? "glyph image" + (g.n ? " · " : "") : ""}${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}${g.image ? " not used" : ""}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}</span></div>`;
+      const title = `<div class="t"><b></b><span class="muted">${g.image ? "glyph image" + (g.n ? " · " : "") : ""}${g.n ? `${g.n} sample${g.n === 1 ? "" : "s"}${g.image ? " not used" : ""}` : ""}${g.iou != null ? ` · match ${g.iou}` : ""}${g.error ? ` · <span style="color:var(--bad)">${g.error}</span>` : ""}${g.warning ? ` · <span style="color:var(--bad)">${g.warning}</span>` : ""}${g.odd && g.odd.length ? ` · <span style="color:var(--warn,#f0a24d)">${g.odd.length} odd left out</span>` : ""}${g.variants ? ` · <span style="color:var(--accent)">${g.variants.length} variants</span>` : ""}</span></div>`;
       if (!g.n && !g.image || g.error && !g.avg_svg) { card.innerHTML = title; card.querySelector("b").textContent = ch; grid.appendChild(card); continue; }
       card.innerHTML = `${title}
         <div class="imgs"><div>${panel("avg", g, r)}</div><div>${panel("trace", g, r)}</div><div>${panel("seed", g, r, show ? g.strokes : null)}</div></div>
@@ -794,6 +794,10 @@ function enlarge(ch, g, r) {
       ${g.n ? '<button class="ov-visit">Visit its samples</button>' : ""}<button class="ov-close" title="Close (Esc)">✕</button></div>
     ${g.odd && g.odd.length ? `<div class="ov-odd">Left out of the average - unlike the other samples (match ${g.odd.map((o) => o.match).join(", ")} vs a typical ${g.odd[0].typical}). Usually a label mistake (an ä labelled a, a letter one cell off):
       ${g.odd.map((o) => `<button class="small" data-box="${o.box}">Visit box ${o.box}</button>`).join(" ")}</div>` : ""}
+    ${g.variants ? `<div class="ov-var"><b>${g.variants.length} variants.</b> Its samples are two different shapes (another typewriter, another type slug), so each is averaged on its own.
+      The one picked goes in the font; the other${g.variants.length > 2 ? "s go" : " goes"} in as an alternate (stylistic set 1, ss01). Regenerate after picking.
+      <div class="ov-vars" style="--ar:${frameOf(r).w} / ${frameOf(r).h}">${g.variants.map((v, k) => `<figure class="${v.chosen ? "on" : ""}"><div>${panel("avg", v, r)}</div>
+        <figcaption>${v.n} sample${v.n === 1 ? "" : "s"} · box ${v.boxes.join(", ")}<br>${v.chosen ? "<b>in the font</b>" : `<button class="small" data-pick="${v.boxes[0]}">Use this one</button>`}</figcaption></figure>`).join("")}</div></div>` : ""}
     <div class="ov-imgs" style="--ar:${frameOf(r).w} / ${frameOf(r).h}">
       <figure><div>${panel("avg", g, r)}</div><figcaption>${g.image ? "glyph image" : `averaged (${g.n} impression${g.n === 1 ? "" : "s"})`}</figcaption></figure>
       <figure><div>${panel("trace", g, r)}</div><figcaption>traced - the Average font</figcaption></figure>
@@ -807,6 +811,12 @@ function enlarge(ch, g, r) {
   if (ov.querySelector(".ov-visit")) ov.querySelector(".ov-visit").onclick = () => { close(); tab("label"); jumpTo(ch); };
   if (ov.querySelector(".ov-img")) ov.querySelector(".ov-img").onclick = () => { close(); showImages(g.image.id); };
   ov.querySelector(".ov-save").onclick = () => saveForCleanup(ch, g.scans || g);
+  ov.querySelectorAll("[data-pick]").forEach((b) => {
+    b.onclick = async () => {
+      S.settings = await api("/api/variant", { method: "POST", body: { char: ch, box: Number(b.dataset.pick) } });
+      b.replaceWith(Object.assign(document.createElement("b"), { textContent: "picked - press Regenerate" }));
+    };
+  });
   ov.querySelectorAll("[data-box]").forEach((b) => { b.onclick = () => { close(); tab("label"); jumpToBox(Number(b.dataset.box)); }; });
   window.addEventListener("keydown", esc, true);
   document.body.appendChild(ov);

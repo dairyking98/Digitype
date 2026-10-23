@@ -212,6 +212,14 @@ def make_app(project: Project):
         project.save()
         return s
 
+    @app.post("/api/variant")
+    def pick_variant(body: dict = Body(...)):
+        """Which variant of a character goes in the font: the one holding this box."""
+        st = project.settings()
+        st["variant_pick"] = {**(st.get("variant_pick") or {}), body["char"]: int(body["box"])}
+        project.save()
+        return st
+
     def run(chars):
         job.update(running=True, log=[], result=None, error=None)
         try:

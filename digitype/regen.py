@@ -648,7 +648,7 @@ def _sample(project, cell, page, settings):
     return mask, br, bc, {"box": cell.get("box"), "w": w, "unit": float(cell.get("unit") or w)}
 
 
-def average(samples, pitch, max_shift_frac=0.12):
+def average(samples, pitch, max_shift_frac=0.12, registered=False):
     """Line samples up (cell centre, baseline), register each to the median
     with sub-pixel phase correlation, then compare each with the majority
     shape: with 3 or more samples, one that clearly disagrees (most often a
@@ -707,6 +707,8 @@ def average(samples, pitch, max_shift_frac=0.12):
                 (dy, dx), _, _ = phase_cross_correlation(ref, stack[i], upsample_factor=8, normalization=None)
                 if abs(dx) <= 0.5 * cellw and abs(dy) <= max_shift_frac * cellw:
                     stack[i] = ndimage.shift(stack[i], (dy, dx), order=1)
+        if registered:
+            return stack
         major = _wmean(stack, wts) >= 0.49
         ious = []
         for i in range(len(stack)):
@@ -723,7 +725,42 @@ def average(samples, pitch, max_shift_frac=0.12):
                     info = samples[i][3] if len(samples[i]) > 3 else {}
                     odd.append({"box": info.get("box"), "match": round(v, 3), "typical": round(med, 3)})
             stack, wts = stack[keep], wts[keep]
+    if registered:
+        return stack
     return _wmean(stack, wts), base, cx, len(stack), odd, target
+
+
+def variant_groups(stack):
+    """Samples of one character that are really different shapes (umlaut
+    dots on one typewriter, double-acute strokes on another): two samples
+    count as the same shape unless, once lined up, one has a piece of
+    stroke the other lacks - their difference, with the thin edge noise
+    worn away, still holds a blob the size of a dot (0.6 x stroke width squared).
+    -> groups of sample indices, the biggest first."""
+    from .images import stroke_px
+    masks = [m >= 0.5 for m in stack]
+    w = stroke_px(np.median(stack, axis=0) >= 0.5) or 4.0
+    r = max(1, int(round(0.3 * w)))
+    disk = morphology.disk(r)
+    n = len(masks)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i in range(n):
+        for j in range(i + 1, n):
+            diff = ndimage.binary_opening(masks[i] ^ masks[j], structure=disk)
+            lab, k = ndimage.label(diff)
+            big = k and np.bincount(lab.ravel())[1:].max() > max(0.6 * w * w, 0.012 * (masks[i] | masks[j]).sum())
+            if not big:
+                parent[find(i)] = find(j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return sorted(groups.values(), key=lambda g: (-len(g), g[0]))
 
 
 def _wmean(stack, wts):
@@ -763,6 +800,7 @@ def regenerate(project, chars=None, log=print, sid=None):
     out_dir = project.out_dir(sid)
     os.makedirs(os.path.join(out_dir, "seeds"), exist_ok=True)
     results, seed_glyphs, avg_glyphs = {}, {}, {}
+    seed_alts, avg_alts = {}, {}
     adv, upem = st["advance"], st["upem"]
     # glyph images (cleaned-up or drawn pictures) stand in for the scans
     pics = {g["char"]: g for g in project.image_list(sid) if g.get("enabled", True) and g.get("char") and g.get("place")}
@@ -797,18 +835,41 @@ def regenerate(project, chars=None, log=print, sid=None):
                     + "\n" + traceback.format_exc(limit=3))
         if res is None:
             continue
-        results[ch], grown_u, avg_u = res
+        results[ch], grown_u, avg_u = res[:3]
+        if len(res) > 3 and res[3] and not results[ch].get("image"):
+            seed_alts[ch] = [a[0] for a in res[3] if a[0] is not None]
+            avg_alts[ch] = [a[1] for a in res[3] if a[1] is not None]
         if grown_u is not None:
             seed_glyphs[ch] = grown_u
         if avg_u is not None:
             avg_glyphs[ch] = avg_u
-    return _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log)
+    return _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log,
+                   alts={"Seed": seed_alts, "Average": avg_alts})
 
 
-def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print):
+def _one_glyph(ch, samples, p, page0, st, out_dir, skipped=0, log=print, split=True):
     """Average one character's samples, trace it, seed it, grow it back.
     -> (result for the page, regrown shape, traced shape), font units. If
     only the seed step fails, the traced average still goes in the font."""
+    groups = variant_groups(average(samples, p, registered=True)) if split and len(samples) >= 2 else [list(range(len(samples)))]
+    if len(groups) > 1:
+        # one variant per group of look-alike samples; the one picked for this
+        # character (by a box of its samples) goes in the font, the others
+        # become alternates (stylistic set 1)
+        boxes = [sorted({samples[i][3].get("box") for i in g if len(samples[i]) > 3}) for g in groups]
+        pick = (st.get("variant_pick") or {}).get(ch)
+        chosen = next((k for k, b in enumerate(boxes) if pick in b), 0)
+        log(f"    {ch!r}: {len(groups)} variants (boxes {' | '.join(', '.join(map(str, b)) for b in boxes)}) - "
+            f"variant {chosen + 1} in the font, the other{'s' if len(groups) > 2 else ''} as alternate")
+        made = []
+        for k, g in enumerate(groups):
+            made.append(_one_glyph(ch, [samples[i] for i in g], p, page0, {**st, "variant_pick": {}}, out_dir,
+                                   skipped if k == chosen else 0, log, split=False))
+        res, grown_u, avg_u = made[chosen]
+        res["variants"] = [{"n": m[0]["n"], "boxes": boxes[k], "avg_png": m[0]["avg_png"], "avg_img": m[0]["avg_img"],
+                            "avg_svg": m[0]["avg_svg"], "chosen": k == chosen} for k, m in enumerate(made)]
+        alts = [(m[1], m[2]) for k, m in enumerate(made) if k != chosen]
+        return res, grown_u, avg_u, alts
     prob, base, cx, n, odd, p = average(samples, p)      # p: the common px per cell
     if odd:
         log(f"    {len(odd)} sample{'s' if len(odd) > 1 else ''} of {ch!r} left out - unlike the others "
@@ -822,6 +883,8 @@ def _image_glyph(project, ch, pic, from_scans, st, out_dir, log=print):
     ink = images.load_ink(project.image_path(pic))
     prob, base, cx, p = images.working_prob(ink, pic["place"], st["advance"])
     res, grown_u, avg_u = _from_prob(ch, prob, base, cx, 0, [], p, None, st, out_dir, 0, log, picture=True)
+    if from_scans is not None and from_scans[0].get("variants"):
+        res["variants"] = from_scans[0]["variants"]
     res["image"] = {"id": pic["id"], "file": pic["file"], "name": pic.get("name")}
     if from_scans is not None:
         r0 = from_scans[0]
@@ -912,14 +975,14 @@ def _from_prob(ch, prob, base, cx, n, odd, p, dpi, st, out_dir, skipped=0, log=p
     return result, grown_u, avg_u
 
 
-def _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log):
+def _finish(project, fs, results, seed_glyphs, avg_glyphs, out_dir, adv, upem, log, alts=None):
     st = fs["settings"]
     name = st.get("font_name") or fs["name"] or "Digitype"
     fonts = {}
     for label, glyphs in (("Seed", seed_glyphs), ("Average", avg_glyphs)):
         if glyphs:
             path = os.path.join(out_dir, f"{_safe(name)}-{label}.ttf")
-            write_font(path, f"{name} {label}", glyphs, upem, adv)
+            write_font(path, f"{name} {label}", glyphs, upem, adv, (alts or {}).get(label))
             fonts[label.lower()] = os.path.basename(path)
             log(f"wrote {path}")
     # one frame for every glyph (font units, y up), so they compare at one scale
@@ -952,11 +1015,19 @@ def _svg(geom):
 
 
 # ------------------------------------------------------------------ font
-def write_font(path, family, glyphs, upem, advance):
+def write_font(path, family, glyphs, upem, advance, alternates=None):
+    """alternates: {char: [shape, ...]} - other variants of a character,
+    reachable through stylistic sets (ss01, ss02...) and 'salt'."""
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
 
+    alternates = {c: v for c, v in (alternates or {}).items() if c in glyphs and v}
     order = [".notdef", "space"] + [f"uni{ord(c):04X}" for c in sorted(glyphs)]
+    alt_shapes = {}
+    for c in sorted(alternates):
+        for k, g in enumerate(alternates[c], 1):
+            alt_shapes[f"uni{ord(c):04X}.ss{k:02d}"] = g
+    order += list(alt_shapes)
     fb = FontBuilder(upem, isTTF=True)
     fb.setupGlyphOrder(order)
     cmap = {32: "space", **{ord(c): f"uni{ord(c):04X}" for c in glyphs}}
@@ -965,8 +1036,8 @@ def write_font(path, family, glyphs, upem, advance):
     ymin, ymax = 0, 0
     for name in order:
         pen = TTGlyphPen(None)
-        ch = chr(int(name[3:], 16)) if name.startswith("uni") else None
-        geom = glyphs.get(ch) if ch else None
+        ch = chr(int(name[3:].split(".")[0], 16)) if name.startswith("uni") else None
+        geom = alt_shapes.get(name) if name in alt_shapes else glyphs.get(ch) if ch else None
         if geom is not None and not geom.is_empty:
             for poly in getattr(geom, "geoms", [geom]):
                 poly = orient(poly, -1.0)                 # TrueType: outer contours clockwise
@@ -1008,4 +1079,13 @@ def write_font(path, family, glyphs, upem, advance):
     fb.setupOS2(sTypoAscender=asc, sTypoDescender=desc, usWinAscent=asc, usWinDescent=-desc,
                 xAvgCharWidth=advance, panose=pan)
     fb.setupPost(isFixedPitch=1)
+    if alt_shapes:
+        fea = []
+        for k in range(1, 1 + max(len(v) for v in alternates.values())):
+            subs = [f"sub uni{ord(c):04X} by uni{ord(c):04X}.ss{k:02d};" for c in sorted(alternates) if len(alternates[c]) >= k]
+            fea.append(f"feature ss{k:02d} {{ {' '.join(subs)} }} ss{k:02d};")
+        salt = [f"sub uni{ord(c):04X} from [{' '.join(f'uni{ord(c):04X}.ss{k:02d}' for k in range(1, len(v) + 1))}];"
+                for c, v in sorted(alternates.items())]
+        fea.append(f"feature salt {{ {' '.join(salt)} }} salt;")
+        fb.addOpenTypeFeatures("languagesystem DFLT dflt;\nlanguagesystem latn dflt;\n" + "\n".join(fea))
     fb.save(path)
