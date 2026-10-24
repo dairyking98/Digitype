@@ -65,6 +65,25 @@ async function uploadPdf(name, data) {
   return json(200, { ...j, added });
 }
 
+// Chrome sends <a download> straight to the network, past the service
+// worker, so api/ downloads (fonts, the project .zip) are fetched here and
+// saved from a blob instead
+document.addEventListener("click", async (e) => {
+  const a = e.target.closest?.("a[download]");
+  if (!a || e.defaultPrevented || a.href.startsWith("blob:") || !new URL(a.href).pathname.includes("/api/")) return;
+  e.preventDefault();
+  const r = await fetch(a.href);
+  if (!r.ok) return alertStatus(`Download failed: ${(await r.json().catch(() => ({}))).detail || r.status}`);
+  const cd = r.headers.get("Content-Disposition") || "";
+  const name = a.getAttribute("download") || cd.match(/filename="([^"]+)"/)?.[1]
+    || decodeURIComponent(new URL(a.href).pathname.split("/").pop());
+  const url = URL.createObjectURL(await r.blob());
+  const tmp = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(tmp); tmp.click(); tmp.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}, true);
+const alertStatus = (t) => { const el = $("upload-status"); if (el) el.textContent = t; };
+
 navigator.serviceWorker?.addEventListener("message", async (e) => {
   if (!e.data?.digitype) return;
   let r;

@@ -49,12 +49,13 @@ from digitype.webapi import Api
   say({ kind: "ready", where: dir ? dir.name : "this browser" });
 }
 
-function request({ id, method, path, query, body }) {
+async function request({ id, method, path, query, body }) {
   try {
     const r = api.handle(method, path, query, body ? new Uint8Array(body) : null);
     const [status, type, out, filename] = r.toJs();
     r.destroy();
     const buf = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength);
+    if (path === "/api/import") await sync();      // the page reloads straight after
     say({ kind: "res", id, status, type, body: buf, filename });
   } catch (e) {
     say({ kind: "res", id, status: 500, type: "application/json",
