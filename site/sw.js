@@ -8,12 +8,21 @@ const API = new URL("api/", self.registration.scope).pathname;
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin || !url.pathname.startsWith(API) || !e.clientId) return;
+  if (url.origin !== location.origin || !url.pathname.startsWith(API)) return;
   e.respondWith(forward(e, url));
 });
 
+// downloads (<a download>, typed-in URLs) come with no client: any open
+// Digitype page can answer them, the focused one first
+async function pageFor(e) {
+  if (e.clientId) return self.clients.get(e.clientId);
+  const pages = (await self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+    .filter((c) => !new URL(c.url).pathname.startsWith(API));
+  return pages.find((c) => c.focused) || pages[0];
+}
+
 async function forward(e, url) {
-  const client = await self.clients.get(e.clientId);
+  const client = await pageFor(e);
   if (!client) return new Response('{"detail":"no page"}', { status: 503 });
   const body = ["GET", "HEAD"].includes(e.request.method) ? null : await e.request.arrayBuffer();
   const ch = new MessageChannel();

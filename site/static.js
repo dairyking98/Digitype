@@ -6,7 +6,7 @@ const PDF_DPI = 600;
 const $ = (id) => document.getElementById(id);
 const status = (t) => { $("boot-status").textContent = t; };
 
-let worker, nextId = 1;
+let worker, ready = false, nextId = 1;
 const waiting = new Map();
 const job = { running: false, log: [], result: null, error: null };
 
@@ -67,7 +67,9 @@ async function uploadPdf(name, data) {
 
 navigator.serviceWorker?.addEventListener("message", async (e) => {
   if (!e.data?.digitype) return;
-  const r = await answer(e.data);
+  let r;
+  try { r = ready ? await answer(e.data) : json(503, { detail: "Digitype is still loading in this tab" }); }
+  catch (err) { r = json(500, { detail: String(err.message || err) }); }
   e.ports[0].postMessage(r, r.body ? [r.body] : []);
 });
 
@@ -82,6 +84,7 @@ function startWorker(dir) {
     else if (m.kind === "log") job.log.push(m.line);
     else if (m.kind === "regen-done") Object.assign(job, { running: false, result: m.result, error: m.error });
     else if (m.kind === "ready") {
+      ready = true;
       $("boot").hidden = true;
       $("static-where").textContent = m.where;
       $("static-open").onclick = (ev) => { ev.preventDefault(); $("static-zip").click(); };
